@@ -1,0 +1,20 @@
+# Live reload for `make api`: rebuild and restart the server when a .go file changes.
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/api ./cmd/api"
+  entrypoint = ["./tmp/api"]
+  include_ext = ["go"]
+  exclude_dir = ["tmp"]
+  exclude_regex = ["_test\\.go$"]
+  delay = 200
+  # Send SIGINT and wait, so graceful shutdown runs on every reload.
+  send_interrupt = true
+  kill_delay = "2s"
+
+[log]
+  time = false
+
+[misc]
+  clean_on_exit = true
