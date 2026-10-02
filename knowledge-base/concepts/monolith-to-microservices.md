@@ -29,8 +29,8 @@ implementation with a network client.
 
 | Phase | What splits out | Which rule | Why it's the right moment |
 |---|---|---|---|
-| 1–2 | Nothing (modular monolith) | — | One server handles 100 users easily; splitting would only add cost |
-| **3** | **WebSocket gateway** | 1, 3 | Holding 10k open connections is a different job from answering REST calls. Deploying the API shouldn't drop every user's connection |
+| 1–2 | Nothing (modular monolith) — WebSockets already work, handled by the `realtime` module inside the same binary | — | One server handles 100 users easily; splitting would only add cost |
+| **3** | **WebSocket gateway** (the existing `realtime` module moves into its own process) | 1, 3 | Holding 10k open connections is a different job from answering REST calls. Deploying the API shouldn't drop every user's connection |
 | **4** | **Notification + media workers** | 2, 1 | Slow work (push, thumbnails) moves behind a queue so it can't slow down sending messages |
 | **5** | **Feed, search, AI service** | 1, 4 | Feed fan-out is write-heavy; search needs its own engine; AI work fits Python + GPUs better |
 | **6** | **Call/SFU + streaming services** | 1, 4 | UDP media traffic, huge bandwidth, completely different scaling |
