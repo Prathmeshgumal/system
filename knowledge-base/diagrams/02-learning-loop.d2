@@ -1,0 +1,11 @@
+# The loop we repeat for EVERY feature.
+direction: right
+
+design: "1. Design\n(doc + D2 diagram\nin knowledge-base)" {shape: rectangle}
+build: "2. Build\n(Go code, you read\nevery line)" {shape: rectangle}
+measure: "3. Measure\n(k6 load test,\nGrafana dashboards)" {shape: rectangle}
+break: "4. Break it\n(kill servers, flood it,\nfind the bottleneck)" {shape: rectangle}
+learn: "5. Write it down\n(ADR: what we chose\nand why)" {shape: rectangle}
+
+design -> build -> measure -> break -> learn
+learn -> design: "next feature /\nnext scale level" {style.stroke-dash: 4}

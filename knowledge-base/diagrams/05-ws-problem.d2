@@ -1,0 +1,17 @@
+# Why load balancing a CHAT app is harder than a normal website.
+# Alice and Bob are connected to different servers. How does Alice's message reach Bob?
+direction: right
+
+alice: Alice {shape: person}
+bob: Bob {shape: person}
+lb: "Load balancer"
+a1: "Go server 1\n(holds Alice's socket)"
+a2: "Go server 2\n(holds Bob's socket)"
+redis: "Redis pub/sub\n(the fix, Phase 3)" {shape: cylinder}
+
+alice -> lb: "send 'hi'"
+lb -> a1
+a1 -> a2: "??? server 1 doesn't\nknow Bob exists" {style.stroke: red; style.stroke-dash: 4}
+a1 -> redis: "publish room:42"
+redis -> a2: "deliver to subscribers"
+a2 -> bob: "'hi'"

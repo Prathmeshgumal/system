@@ -1,0 +1,55 @@
+# What runs where, per version.
+direction: right
+
+v1: "v0.1 - local" {
+  style.fill: "#e8f5e9"
+  label.near: top-center
+  laptop: "Your laptop (docker compose)" {
+    web: "React dev server"
+    api: "Go backend"
+    db: "Postgres" {shape: cylinder}
+    web -> api
+    api -> db
+  }
+}
+
+v2: "v0.2 - on AWS" {
+  style.fill: "#e3f2fd"
+  label.near: top-center
+  ec2: "1 EC2 instance" {
+    caddy: "Caddy\n+ React build"
+    api: "Go backend"
+    db: "Postgres" {shape: cylinder}
+    caddy -> api
+    api -> db
+  }
+  s3: "S3\n(avatars)" {shape: cylinder}
+  ec2.api -> s3
+  graf: "Prometheus\n+ Grafana"
+  graf -> ec2.api: "scrape" {style.stroke-dash: 4}
+}
+
+v3: "v0.3 - real users" {
+  style.fill: "#fff3e0"
+  label.near: top-center
+  lb: "Load balancer"
+  gw1: "WS gateway 1"
+  gw2: "WS gateway 2"
+  api1: "Core API 1"
+  api2: "Core API 2"
+  redis: "Redis" {shape: cylinder}
+  db: "Postgres\n+ replica" {shape: cylinder}
+  lb -> gw1
+  lb -> gw2
+  lb -> api1
+  lb -> api2
+  gw1 -> redis
+  gw2 -> redis
+  api1 -> redis
+  api2 -> redis
+  api1 -> db
+  api2 -> db
+}
+
+v1 -> v2: "deploy"
+v2 -> v3: "scale out"

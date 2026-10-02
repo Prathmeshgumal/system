@@ -1,0 +1,32 @@
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+
+# Go
+/backend/bin/
+*.test
+*.out
+coverage.*
+
+# Node / React
+node_modules/
+/web/dist/
+*.log
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# Load test results
+/loadtest/results/

@@ -1,0 +1,38 @@
+# The whole journey. Each phase ends with: deploy -> stress test -> break it -> write it down.
+grid-columns: 4
+grid-gap: 60
+
+p0: "Phase 0\nFoundations" {
+  style.fill: "#e8f5e9"
+  t: "Go basics through the project\nDocker + Docker Compose\nPostgres, SQL, migrations\nHTTP, REST, JSON"
+}
+p1: "Phase 1\nChat MVP (100 users)" {
+  style.fill: "#e3f2fd"
+  t: "Signup / login (JWT)\n1:1 + group chat over WebSockets\nMessage history + pagination\nTiny web client"
+}
+p2: "Phase 2\nShip it on AWS" {
+  style.fill: "#fff3e0"
+  t: "EC2, VPC, security groups\nDomain + HTTPS (Caddy)\nCI/CD with GitHub Actions\nMetrics + logs + k6 load tests"
+}
+p3: "Phase 3\nScale out (1k-10k)" {
+  style.fill: "#fce4ec"
+  t: "Load balancers (L4 vs L7)\nStateless servers\nRedis pub/sub between WS servers\nPresence, caching, rate limits"
+}
+p4: "Phase 4\nAsync + media" {
+  style.fill: "#f3e5f5"
+  t: "Message queues (NATS / Kafka)\nPush notifications\nS3 uploads + CDN\nDelivery receipts, retries, idempotency"
+}
+p5: "Phase 5\nSocial + AI" {
+  style.fill: "#e0f7fa"
+  t: "Posts, follows, news feed\nFan-out on write vs read\nSearch + pgvector semantic search\nLLM moderation / smart replies"
+}
+p6: "Phase 6\nCalls + live streams" {
+  style.fill: "#fffde7"
+  t: "WebRTC, STUN/TURN\nSFU for group calls (Pion)\nRTMP ingest -> HLS\nTranscoding + CDN"
+}
+p7: "Phase 7\nMillion users" {
+  style.fill: "#efebe9"
+  t: "Sharding + partitioning\nCassandra/Scylla for messages\nKubernetes, multi-region\nChaos testing, SLOs"
+}
+
+p0 -> p1 -> p2 -> p3 -> p4 -> p5 -> p6 -> p7

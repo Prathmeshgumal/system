@@ -1,0 +1,47 @@
+# When each piece leaves the monolith.
+direction: down
+
+mono: "Phase 1-2: modular monolith" {
+  style.fill: "#e8f5e9"
+  m: "auth | users | chat | realtime"
+}
+
+p3: "Phase 3" {
+  style.fill: "#e3f2fd"
+  gw: "WebSocket gateway\n(holds connections)"
+  core: "Core API\n(auth, users, chat)"
+  gw -> core: "gRPC"
+}
+
+p4: "Phase 4" {
+  style.fill: "#fff3e0"
+  q: "Queue" {shape: queue}
+  notif: "Notification worker"
+  media: "Media worker\n(thumbnails)"
+  q -> notif
+  q -> media
+}
+
+p5: "Phase 5" {
+  style.fill: "#f3e5f5"
+  feed: "Feed service"
+  search: "Search service"
+  ai: "AI service\n(Python)"
+}
+
+p6: "Phase 6" {
+  style.fill: "#fffde7"
+  sfu: "Call SFU\n(UDP / WebRTC)"
+  stream: "Streaming\n(RTMP -> HLS)"
+}
+
+p7: "Phase 7" {
+  style.fill: "#fce4ec"
+  shard: "Sharded message service"
+}
+
+mono -> p3: "connections and API\nscale differently"
+p3 -> p4: "slow work shouldn't\nblock sending"
+p4 -> p5: "new workloads,\nnew tech"
+p5 -> p6: "media is a\ndifferent world"
+p6 -> p7: "storage is the\nbottleneck"

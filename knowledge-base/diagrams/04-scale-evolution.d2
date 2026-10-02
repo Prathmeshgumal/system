@@ -1,0 +1,59 @@
+# How the same app changes shape as users grow. We learn ALL of these, even before we need them.
+direction: right
+
+s1: "~100 users" {
+  style.fill: "#e8f5e9"
+  app: "Go app"
+  db: "Postgres" {shape: cylinder}
+  app -> db
+}
+
+s2: "~10k users" {
+  style.fill: "#e3f2fd"
+  lb: "Load balancer"
+  a1: "Go app 1"
+  a2: "Go app 2"
+  redis: "Redis\n(pub/sub, cache)" {shape: cylinder}
+  db: "Postgres\n+ read replica" {shape: cylinder}
+  lb -> a1
+  lb -> a2
+  a1 -> redis
+  a2 -> redis
+  a1 -> db
+  a2 -> db
+}
+
+s3: "~100k users" {
+  style.fill: "#fff3e0"
+  lb: "Load balancer"
+  gw: "WS gateways (N)"
+  svc: "Services\n(chat, users, feed)"
+  q: "Message queue" {shape: queue}
+  cache: "Redis cluster" {shape: cylinder}
+  db: "Postgres primary\n+ replicas" {shape: cylinder}
+  s3: "S3 + CDN\n(media)" {shape: cylinder}
+  lb -> gw -> svc
+  svc -> q
+  svc -> cache
+  svc -> db
+  svc -> s3
+}
+
+s4: "~1M users" {
+  style.fill: "#fce4ec"
+  dns: "Geo DNS"
+  r1: "Region A\n(full stack)"
+  r2: "Region B\n(full stack)"
+  msgs: "Sharded message store\n(Cassandra / Scylla)" {shape: cylinder}
+  k8s: "Kubernetes\nautoscaling"
+  dns -> r1
+  dns -> r2
+  r1 -> msgs
+  r2 -> msgs
+  k8s -> r1: "runs" {style.stroke-dash: 4}
+  k8s -> r2: "runs" {style.stroke-dash: 4}
+}
+
+s1 -> s2: "one server\nisn't enough"
+s2 -> s3: "one DB / one codebase\nisn't enough"
+s3 -> s4: "one region\nisn't enough"

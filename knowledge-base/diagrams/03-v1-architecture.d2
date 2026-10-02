@@ -1,0 +1,32 @@
+# v0.1 / v0.2: React app + Go modular monolith + Postgres. Frontend and backend are separate apps.
+direction: right
+
+user: "User\n(browser)" {shape: person}
+
+web: "React app (web/)\nVite + TypeScript\nstatic files" {
+  style.fill: "#e3f2fd"
+}
+
+server: "Server" {
+  proxy: "Caddy\n(HTTPS, reverse proxy)"
+  api: "Go backend (backend/)\nmodular monolith" {
+    style.fill: "#e8f5e9"
+    auth: "auth"
+    users: "users"
+    chat: "chat"
+    realtime: "realtime\n(WebSocket hub)"
+    chat -> realtime: "new message" {style.stroke-dash: 4}
+    auth -> users {style.stroke-dash: 4}
+  }
+  db: "Postgres" {shape: cylinder}
+
+  proxy -> api.auth: "/api/auth"
+  proxy -> api.chat: "/api/chats"
+  proxy -> api.realtime: "/ws (upgrade)"
+  api.chat -> db
+  api.users -> db
+  api.auth -> db
+}
+
+user -> web: "1. load app"
+user -> server.proxy: "2. REST + WebSocket"
