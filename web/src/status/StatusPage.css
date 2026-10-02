@@ -1,0 +1,40 @@
+.status {
+  max-width: 28rem;
+  margin: 4rem auto;
+  padding: 1.5rem 1.75rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.status h1 {
+  margin: 0 0 1.25rem;
+  font-size: 1.15rem;
+}
+
+.status dl {
+  display: grid;
+  grid-template-columns: 7rem 1fr;
+  row-gap: 0.6rem;
+  margin: 0;
+}
+
+.status dt {
+  color: var(--muted);
+}
+
+.status dd {
+  margin: 0;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.ok {
+  color: var(--ok);
+}
+
+.down {
+  color: var(--down);
+}
