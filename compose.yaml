@@ -1,0 +1,51 @@
+# Dev mode:  `make db`      → only postgres (services without a profile)
+# Full mode: `make up-full` → postgres + api + web (the "full" profile)
+name: relay
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432" # published so the API on your machine can reach it
+    volumes:
+      - pgdata:/var/lib/postgresql # Postgres 18 images keep data under this path
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    profiles: [full]
+    build:
+      context: ./backend
+      args:
+        VERSION: ${VERSION:-dev}
+    environment:
+      PORT: "8080"
+      # Inside the Docker network, Postgres is reached by its service name, not localhost.
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+    depends_on:
+      - postgres # waits for the container to start, not to be healthy — /readyz handles the gap
+    healthcheck:
+      test: ["CMD", "/api", "healthcheck"] # no curl in distroless, so the binary checks itself
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    # No ports: the API is only reachable through Caddy, like in production.
+
+  web:
+    profiles: [full]
+    build: ./web
+    ports:
+      - "8000:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
