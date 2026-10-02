@@ -1,8 +1,9 @@
 # Part 0.1 — Dev Environment: Design
 
 - **Phase:** 0 — Foundations
-- **Status:** 🟦 in design (brainstorming) — all 3 sections approved — spec awaiting your review
-- **Branch:** to be created from `main` when the design is approved
+- **Status:** 🟨 built — experiments in [learnings.md](learnings.md) pending
+- **Branch:** `part/0.1-dev-environment`
+- **Plan:** skipped for this part (small scope; built directly from this design, tests first)
 
 ## Goal
 

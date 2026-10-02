@@ -3,7 +3,7 @@
 Every phase is split into 3–4 parts. Each part goes through the full process:
 
 1. **Brainstorm** → `design.md` (the spec, approved by you)
-2. **Plan** → `plan.md` (step-by-step build plan)
+2. **Plan** → `plan.md` (step-by-step build plan — can be skipped for small parts)
 3. **Build** — tests first, you read every line
 4. **Measure / break** → numbers, failures
 5. **Write up** → `learnings.md`
@@ -18,7 +18,7 @@ Status: ⬜ not started · 🟦 design · 🟨 building · ✅ done
 
 | Part | Build | Learn | Status |
 |---|---|---|---|
-| 0.1 Dev environment | Monorepo skeleton, docker compose + Postgres, Go health endpoints, React status page, Makefile, Dockerfiles | Containers, multi-stage builds, reverse proxy vs CORS, health checks | 🟦 [design](phase-0/0.1-dev-environment/design.md) |
+| 0.1 Dev environment | Monorepo skeleton, docker compose + Postgres, Go health endpoints, React status page, Makefile, Dockerfiles | Containers, multi-stage builds, reverse proxy vs CORS, health checks | 🟨 [design](phase-0/0.1-dev-environment/design.md) · [learnings](phase-0/0.1-dev-environment/learnings.md) |
 | 0.2 Backend skeleton | Go layout, config, structured logging, DB pool, migrations, sqlc, integration-test setup | Go project structure, connection pooling, migrations, testing against a real DB | ⬜ |
 | 0.3 Frontend skeleton | Routing, API client, TanStack Query, Tailwind, app layout | Single-page app ↔ API, server state vs UI state | ⬜ |
 
