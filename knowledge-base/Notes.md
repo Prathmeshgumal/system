@@ -10,6 +10,7 @@ Format per note: **What it is → Why it matters → What we chose → Go deeper
 | # | Concept | Came up in |
 |---|---|---|
 | 1 | [Same-origin policy, CORS & reverse proxies](#1-same-origin-policy-cors--reverse-proxies) | Part 0.1, decision C |
+| 2 | [Health checks: liveness vs readiness](#2-health-checks-liveness-vs-readiness) | Part 0.1, decision D |
 
 ---
 
@@ -104,3 +105,68 @@ WebSockets need the proxy to pass through the HTTP `Upgrade` handshake — Vite 
   routing, load balancing, rate limiting, hiding internal services.
 - "How would you serve web + mobile clients?" → mobile apps aren't bound by SOP; a public
   API for third parties would need CORS (or a separate API domain).
+
+---
+
+## 2. Health checks: liveness vs readiness
+
+*Came up in Part 0.1 — what `/health` should check.*
+
+![liveness vs readiness](diagrams/notes/02-liveness-readiness.svg)
+
+### What it is
+
+Something outside your app (a load balancer, Kubernetes, Docker, AWS) regularly calls
+an endpoint to ask "are you OK?" — and **acts on the answer**. There are two different
+questions, and they lead to two different actions:
+
+| Probe | Question | If it fails… | Should check dependencies? |
+|---|---|---|---|
+| **Liveness** `/livez` | Is the process alive and not stuck? | **Restart** the server | ❌ Never |
+| **Readiness** `/readyz` | Can it serve requests *right now*? | **Stop sending traffic** to it (no restart) | ✅ Yes — DB, etc. |
+| *Startup* `/startupz` | Has it finished booting? | Wait; don't run the other probes yet | — |
+
+### Why it matters
+
+**The classic outage:** a single `/health` that checks the database. Postgres has a
+5-second blip → *every* server fails its health check at once → the orchestrator
+restarts all of them (or the LB removes all of them) → a tiny DB hiccup becomes a full
+outage, and the restart storm hammers the DB as it recovers.
+
+Split probes avoid that: during the blip, servers stay alive (liveness OK), just stop
+taking traffic (readiness fails), and come back on their own when the DB returns.
+
+### What we chose
+
+**Two endpoints** (Part 0.1, decision D):
+- `/livez` → always `200 {"status":"alive"}` if the HTTP server can respond at all
+- `/readyz` → pings Postgres with a short timeout (e.g. 1s);
+  `200 {"status":"ready","checks":{"postgres":{"status":"ok","latency_ms":2}}}` or `503` with details
+- React's status page calls `/readyz` through the proxy
+- Docker Compose `healthcheck:` uses them in full mode; Phase 3's load balancer and
+  Phase 7's Kubernetes will too
+- `/startupz` gets added when slow startup work appears (migrations on boot)
+
+### Gotchas
+
+- **Probes must be cheap and fast** — they run every few seconds on every server. `SELECT 1`, not a real query.
+- **Always use a timeout** inside the check. A hanging DB call makes the probe hang,
+  and the prober's own timeout produces confusing failures.
+- **Don't check *other services* in readiness** unless you truly can't work without them —
+  otherwise one failing service cascades into marking everything unready.
+- **Graceful shutdown uses readiness:** on shutdown, first fail `/readyz` so the LB stops
+  sending new requests, *then* finish in-flight requests, *then* exit. We'll do this in 0.2.
+- Health endpoints can leak internals (versions, hostnames) — keep details minimal on public routes.
+
+### Go deeper
+
+- Kubernetes docs: *Configure Liveness, Readiness and Startup Probes*
+- AWS docs: *Health checks for your target groups* (ALB) — same idea, different names
+- Google SRE book, chapter *Addressing Cascading Failures* (free online)
+
+### Interview angle
+
+- "How does your load balancer know a server is down?" → health checks, interval,
+  healthy/unhealthy thresholds, liveness vs readiness.
+- "What happens to in-flight requests when you deploy?" → readiness + graceful shutdown + connection draining.
+- "How do you stop one failing dependency from taking everything down?" → don't put it in liveness; circuit breakers (Phase 3+).

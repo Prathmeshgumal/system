@@ -1,0 +1,23 @@
+# Liveness vs readiness during a short Postgres outage.
+direction: right
+
+lb: "Load balancer /\norchestrator" {shape: hexagon}
+
+ok: "Server A" {
+  style.fill: "#e8f5e9"
+  live: "/livez -> 200\n(process alive)"
+  ready: "/readyz -> 200\n(DB reachable)"
+}
+
+blip: "Server B (DB unreachable)" {
+  style.fill: "#fff3e0"
+  live: "/livez -> 200\n(still alive: DON'T restart)"
+  ready: "/readyz -> 503\n(not ready: no traffic)"
+}
+
+db: "Postgres" {shape: cylinder}
+
+lb -> ok.ready: "send traffic"
+lb -> blip.ready: "skip until 200 again" {style.stroke-dash: 4; style.stroke: "#e65100"}
+ok.ready -> db: "SELECT 1"
+blip.ready -> db: "timeout" {style.stroke: red; style.stroke-dash: 4}
