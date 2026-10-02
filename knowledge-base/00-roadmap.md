@@ -22,6 +22,9 @@ toward 1M — learning each system design concept at the moment the app needs it
 
 What the app can do at each version: [01-app-versions.md](01-app-versions.md).
 
+**Each phase is split into 3–4 parts**, and every part gets its own design doc, plan and
+learnings write-up. Breakdown and progress: [phases/README.md](phases/README.md).
+
 ![learning loop](diagrams/02-learning-loop.svg)
 
 ---
@@ -158,6 +161,5 @@ moving to separate repos later is just copying a folder.
 
 ## Next steps
 
-1. Write the Phase 1 design doc (requirements → estimates → API → WebSocket protocol → schema → diagram) **before** any code.
-2. Scaffold `backend/` (Go) + `web/` (React) + `deploy/docker-compose.yml` with Postgres.
-3. Build v0.1 feature by feature (see [01-app-versions.md](01-app-versions.md)), one git branch per feature.
+Work through the parts in [phases/README.md](phases/README.md) in order, starting with **0.1 Dev environment**.
+One git branch per part.

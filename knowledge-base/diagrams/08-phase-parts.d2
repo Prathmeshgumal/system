@@ -1,0 +1,67 @@
+# Every phase broken into parts. Each part = design -> plan -> build -> measure -> learnings.
+grid-columns: 4
+grid-gap: 40
+
+p0: "Phase 0 - Foundations" {
+  style.fill: "#e8f5e9"
+  grid-rows: 3
+  a: "0.1 Dev environment"
+  b: "0.2 Backend skeleton"
+  c: "0.3 Frontend skeleton"
+}
+p1: "Phase 1 - Chat MVP (v0.1)" {
+  style.fill: "#e3f2fd"
+  grid-rows: 4
+  a: "1.1 Accounts & auth"
+  b: "1.2 Chats over REST"
+  c: "1.3 Real-time (WebSockets)"
+  d: "1.4 Measure it"
+}
+p2: "Phase 2 - Live on internet (v0.2)" {
+  style.fill: "#fff3e0"
+  grid-rows: 4
+  a: "2.1 Richer chat"
+  b: "2.2 Media"
+  c: "2.3 First AWS deploy"
+  d: "2.4 Observability"
+}
+p3: "Phase 3 - Real users (v0.3)" {
+  style.fill: "#fce4ec"
+  grid-rows: 4
+  a: "3.1 Load balancing"
+  b: "3.2 First service split"
+  c: "3.3 Real-user features"
+  d: "3.4 Hardening"
+}
+p4: "Phase 4 - Async + media" {
+  style.fill: "#f3e5f5"
+  grid-rows: 4
+  a: "4.1 Queues + outbox"
+  b: "4.2 Notifications"
+  c: "4.3 Files + CDN"
+  d: "4.4 Delivery guarantees"
+}
+p5: "Phase 5 - Social + AI" {
+  style.fill: "#e0f7fa"
+  grid-rows: 4
+  a: "5.1 Posts & follows"
+  b: "5.2 News feed"
+  c: "5.3 Search + semantic"
+  d: "5.4 AI service"
+}
+p6: "Phase 6 - Calls + streams" {
+  style.fill: "#fffde7"
+  grid-rows: 4
+  a: "6.1 1:1 calls (WebRTC)"
+  b: "6.2 Group calls (SFU)"
+  c: "6.3 Live streaming"
+  d: "6.4 Stream chat + scale"
+}
+p7: "Phase 7 - Million users" {
+  style.fill: "#efebe9"
+  grid-rows: 4
+  a: "7.1 Sharded messages"
+  b: "7.2 Kubernetes"
+  c: "7.3 Multi-region + DR"
+  d: "7.4 SLOs + chaos"
+}
