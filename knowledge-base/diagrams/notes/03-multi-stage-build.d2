@@ -1,0 +1,25 @@
+# Multi-stage Docker build: compile in a big image, ship only the binary in a tiny one.
+direction: right
+
+build: "Stage 1: build (golang:1.27, ~800 MB)" {
+  style.fill: "#fff3e0"
+  mod: "COPY go.mod go.sum\nRUN go mod download\n(cached layer)"
+  src: "COPY . .\nRUN CGO_ENABLED=0 go build"
+  bin: "/api binary\n(~15 MB)" {shape: page}
+  mod -> src -> bin
+}
+
+run: "Stage 2: run (distroless/static, ~2 MB)" {
+  style.fill: "#e8f5e9"
+  certs: "CA certs + tzdata"
+  user: "nonroot user"
+  api: "/api" {shape: page}
+}
+
+thrown: "Compiler, source code,\nbuild cache: thrown away" {
+  shape: cloud
+  style.stroke-dash: 4
+}
+
+build.bin -> run.api: "COPY --from=build"
+build -> thrown: "not shipped" {style.stroke-dash: 4}

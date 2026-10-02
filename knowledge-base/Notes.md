@@ -11,6 +11,7 @@ Format per note: **What it is → Why it matters → What we chose → Go deeper
 |---|---|---|
 | 1 | [Same-origin policy, CORS & reverse proxies](#1-same-origin-policy-cors--reverse-proxies) | Part 0.1, decision C |
 | 2 | [Health checks: liveness vs readiness](#2-health-checks-liveness-vs-readiness) | Part 0.1, decision D |
+| 3 | [Multi-stage Docker builds & base images](#3-multi-stage-docker-builds--base-images) | Part 0.1, decision E |
 
 ---
 
@@ -170,3 +171,89 @@ taking traffic (readiness fails), and come back on their own when the DB returns
   healthy/unhealthy thresholds, liveness vs readiness.
 - "What happens to in-flight requests when you deploy?" → readiness + graceful shutdown + connection draining.
 - "How do you stop one failing dependency from taking everything down?" → don't put it in liveness; circuit breakers (Phase 3+).
+
+---
+
+## 3. Multi-stage Docker builds & base images
+
+*Came up in Part 0.1 — which image the Go binary runs in.*
+
+![multi-stage build](diagrams/notes/03-multi-stage-build.svg)
+
+### What it is
+
+**Image vs container:** an *image* is a read-only template (filesystem + startup command);
+a *container* is a running instance of it. One image → many containers.
+
+**Layers:** every Dockerfile instruction (`COPY`, `RUN`…) creates a layer. Docker caches
+layers and reuses them if nothing they depend on changed. Order matters: put things that
+rarely change (dependencies) *before* things that change often (your code).
+
+**Multi-stage build:** one Dockerfile, several `FROM` stages. Early stages have heavy
+tools (compiler); the final stage copies in only the result. Everything else is thrown away.
+
+```dockerfile
+# ---- stage 1: build ----
+FROM golang:1.27 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download                 # cached until go.mod/go.sum change
+COPY . .
+RUN CGO_ENABLED=0 go build -o /api ./cmd/api
+
+# ---- stage 2: run ----
+FROM gcr.io/distroless/static:nonroot
+COPY --from=build /api /api
+USER nonroot
+ENTRYPOINT ["/api"]
+```
+
+**Base image options for the final stage:**
+
+| Image | Size | Contains | Shell |
+|---|---|---|---|
+| `scratch` | 0 MB | nothing | ❌ |
+| `distroless/static` | ~2 MB | CA certs, tzdata, `/etc/passwd` with nonroot user | ❌ |
+| `alpine` | ~8 MB | musl libc, busybox shell, `apk` package manager | ✅ |
+| `debian-slim` | ~75 MB | full glibc userland | ✅ |
+
+### Why it matters
+
+- **Smaller image** → faster pulls on deploy and autoscaling (Phase 3/7), less disk, cheaper.
+- **Smaller attack surface** → no shell or package manager for an attacker to use; fewer CVEs in scanners.
+- **Reproducible builds** → the same Dockerfile builds the same thing on your laptop and on AWS.
+
+### What we chose
+
+**`gcr.io/distroless/static:nonroot`** (Part 0.1, decision E). Go compiles to one
+static binary when `CGO_ENABLED=0`, so it needs nothing from the OS except CA
+certificates (to verify HTTPS servers like S3) and timezone data — exactly what distroless/static gives.
+
+### Gotchas
+
+- **`CGO_ENABLED=0`** makes the binary fully static. Without it, Go may link to the
+  system C library (glibc), and the binary crashes on images that don't have it
+  (scratch, distroless/static, alpine's musl) with a confusing "not found" error.
+- **`scratch` + HTTPS = `x509: certificate signed by unknown authority`** — no CA certs.
+- **Layer cache busting:** `COPY . .` before `go mod download` re-downloads all
+  dependencies on every code change. Copy `go.mod`/`go.sum` first.
+- **`.dockerignore`** — without it, `COPY . .` sends `node_modules`, `.git`, `.env`
+  (secrets!) into the build. Always add one.
+- **Never run as root** in the container: if the app is compromised, root in the
+  container is one kernel bug away from root on the host.
+- **No shell = debug differently:** logs, metrics, or `docker debug <container>` /
+  ephemeral debug containers that attach tools from outside.
+
+### Go deeper
+
+- Docker docs: *Multi-stage builds* and *Build cache*
+- `docker history <image>` — see every layer and its size
+- `dive` (open-source tool) — explore an image layer by layer
+- GoogleContainerTools/distroless on GitHub — README explains each variant
+- Scan an image for CVEs: `docker scout cves <image>` or `trivy image <image>`
+
+### Interview angle
+
+- "How do you keep container images small and secure?" → multi-stage, minimal base, non-root, `.dockerignore`, scanning.
+- "Why are your deploys slow?" → huge images, bad layer ordering, no build cache.
+- "Container vs VM?" → containers share the host kernel (namespaces + cgroups); VMs have their own kernel.
