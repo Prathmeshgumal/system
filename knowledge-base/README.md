@@ -6,6 +6,7 @@ Everything we design and decide lives here, next to the code.
 |---|---|
 | `00-roadmap.md` | The full plan, phase by phase, and the $0 cost plan |
 | `01-app-versions.md` | What the app can do after each phase |
+| `Notes.md` | Concepts to revisit in free time — one short note per concept we discuss |
 | `phases/` | One folder per part: design.md, plan.md, learnings.md, diagrams/ — plus the progress tracker |
 | `concepts/` | One note per concept, written as we hit it (e.g. `load-balancing.md`) |
 | `adr/` | Architecture Decision Records — one file per real decision (`0001-use-postgres.md`) |

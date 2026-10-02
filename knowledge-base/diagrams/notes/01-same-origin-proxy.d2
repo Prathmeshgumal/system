@@ -1,0 +1,24 @@
+# Same-origin via reverse proxy (what we use) vs separate origins + CORS.
+direction: right
+
+proxy: "Our choice: same origin via reverse proxy" {
+  style.fill: "#e8f5e9"
+  browser: "Browser\nonly knows localhost:5173" {shape: person}
+  p: "Proxy\n(Vite in dev, Caddy in prod)"
+  react: "React files"
+  go: "Go API :8080"
+  browser -> p: "GET /, /api/*, /ws"
+  p -> react: "/"
+  p -> go: "/api/*, /ws\n(server-to-server:\nno browser rules apply)"
+}
+
+cors: "Alternative: separate origins + CORS" {
+  style.fill: "#fff3e0"
+  browser: "Browser" {shape: person}
+  react: "React\nlocalhost:5173"
+  go: "Go API\nlocalhost:8080"
+  browser -> react: "1. load app"
+  browser -> go: "2. OPTIONS preflight\n'may 5173 call you?'" {style.stroke-dash: 4}
+  go -> browser: "3. Access-Control-Allow-Origin:\nlocalhost:5173" {style.stroke-dash: 4}
+  browser -> go: "4. real request"
+}
