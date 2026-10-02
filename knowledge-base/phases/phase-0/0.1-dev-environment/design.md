@@ -1,7 +1,7 @@
 # Part 0.1 — Dev Environment: Design
 
 - **Phase:** 0 — Foundations
-- **Status:** 🟦 in design (brainstorming) — Sections 1–2 approved, Section 3 in review
+- **Status:** 🟦 in design (brainstorming) — all 3 sections approved — spec awaiting your review
 - **Branch:** to be created from `main` when the design is approved
 
 ## Goal
@@ -32,7 +32,7 @@ at repo root · Postgres 18 · ports 5173 (Vite), 8080 (API), 5432 (Postgres), 8
 system/
 ├── Makefile                 # every command lives here (`make help`)
 ├── compose.yaml             # postgres always; api + web only in the "full" profile
-├── .env.example             # copy to .env; DB password, ports
+├── .env.example             # copy to .env; DB user/password/name, ports
 ├── backend/
 │   ├── go.mod
 │   ├── cmd/api/main.go      # starts the HTTP server
@@ -41,9 +41,9 @@ system/
 │   └── .air.toml            # live-reload config
 ├── web/
 │   ├── (Vite + React + TS)
-│   ├── vite.config.ts       # dev proxy: /api, /ws → :8080
+│   ├── vite.config.ts       # dev proxy: /api → :8080 (/ws added in Part 1.3)
 │   ├── Dockerfile           # node (build) → caddy (serve), multi-stage
-│   └── Caddyfile            # serve React, forward /api + /ws → api:8080
+│   └── Caddyfile            # serve React, forward /api → api:8080 (/ws in Part 1.3)
 └── knowledge-base/
 ```
 
@@ -66,9 +66,20 @@ make dev                                  make up-full
 | `make web` | Run the Vite dev server |
 | `make dev` | Postgres + API + web together in one terminal |
 | `make up-full` | Build the real images and run everything in containers |
-| `make down` | Stop everything |
+| `make down` | Stop everything (data kept) |
+| `make clean` | Stop everything and delete the database volume |
 | `make psql` | Open a SQL shell into the database |
 | `make test` | Run backend + frontend tests |
+| `make smoke` | End-to-end check of full mode (see Section 3) |
+
+**Configuration & data**
+- The Makefile loads `.env` and exports it, so `make api` gets the same values Compose uses.
+- `DATABASE_URL` differs by mode — and that difference is the lesson of experiment 4:
+  - dev: `postgres://…@localhost:5432/relay` (API on the host → Postgres's published port)
+  - full: `postgres://…@postgres:5432/relay` (API container → Postgres by its Compose service name)
+- Postgres data lives in a named volume (`pgdata`), so it survives `make down`;
+  `make clean` removes it.
+- `version` in `/api/status` defaults to `dev`; full-mode builds inject the git commit via `-ldflags`.
 
 ## Section 2 — What the code does ✅ approved
 
@@ -127,6 +138,44 @@ Plain `fetch` + `useEffect`, minimal CSS — routing, TanStack Query and Tailwin
 - API `depends_on` Postgres being **started**, not healthy — readiness handles the gap, and
   restarting Postgres while the app runs proves it.
 
-## Section 3 — Testing & "done when" ⏳ in review
+## Section 3 — Testing & "done when" ✅ approved
 
-*(Filled in once approved.)*
+### Automated tests (written first — TDD)
+
+**Go — `internal/health` (unit)**
+- The checker depends on a small `Pinger` interface, so tests use a fake DB:
+  - ping succeeds → `ok` with measured latency
+  - ping returns an error → `down`
+  - ping hangs → `down` after ≈ 1 s (proves the timeout works)
+- Handlers via `httptest`:
+  - `/livez` → always `200`, **even when the DB is down**
+  - `/readyz` → `200` / `503` matching the checker
+  - `/api/status` → correct JSON shape and status code
+- Tests against a real Postgres are set up in Part 0.2.
+
+**React — status page (Vitest + React Testing Library, mocked `fetch`)**
+- Renders all three states: healthy, DB down, API unreachable.
+
+**Smoke test — `make smoke` (end to end, full mode)**
+- Brings up full mode, then via Caddy on `:8000`:
+  - `/api/status` → `200` with healthy JSON
+  - `/livez` → does **not** return the API's JSON (Caddy serves the React page instead),
+    proving infra endpoints aren't exposed through the proxy
+- Tears everything down.
+
+### Hands-on experiments (results → `learnings.md`)
+
+1. **DB blip:** stop Postgres → page shows "DB down" within ~5 s, `/livez` stays `200`,
+   API is not restarted → start Postgres → recovers on its own.
+2. **API crash:** stop the API → page shows "API unreachable".
+3. **Image sizes:** build the API image on `scratch`, `distroless/static` and `alpine`; compare.
+4. **The localhost trap:** in full mode set `DATABASE_URL` host to `localhost` → watch it
+   fail → explain why (each container has its own `localhost`).
+
+### Done when
+
+- [ ] Fresh checkout: `cp .env.example .env && make dev` → status page at `:5173` shows all healthy
+- [ ] `make up-full` → all healthy at `:8000`; `docker compose ps` shows api + postgres **healthy**
+- [ ] `make test` and `make smoke` pass
+- [ ] All 4 experiments done and written up in `learnings.md`
+- [ ] New concepts added to `Notes.md`; tracker shows 0.1 as ✅
