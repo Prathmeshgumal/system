@@ -13,6 +13,7 @@ Format per note: **What it is → Why it matters → What we chose → In our co
 | 2 | [Health checks: liveness vs readiness](#2-health-checks-liveness-vs-readiness) | Part 0.1, decision D |
 | 3 | [Multi-stage Docker builds & base images](#3-multi-stage-docker-builds--base-images) | Part 0.1, decision E |
 | 4 | [Go packages & project layout](#4-go-packages--project-layout) | Part 0.2, decision B |
+| 5 | [Configuration via environment variables](#5-configuration-via-environment-variables) | Part 0.2, decision C |
 
 ---
 
@@ -485,3 +486,86 @@ gateway in Phase 3) gets its own `cmd/<name>/` folder, sharing the same `interna
 
 - "How would you structure a growing backend?" → by feature/domain, clear boundaries, shared platform layer.
 - "How would you split a monolith?" → if it's already modular, each module becomes a service; data ownership per module is the hard part.
+
+---
+
+## 5. Configuration via environment variables
+
+*Came up in Part 0.2 — how the backend reads its settings.*
+
+### Basics first
+
+- **Config / settings** = values that differ between environments but aren't code:
+  port, database address, timeouts, secret keys. Laptop, Docker and AWS run the *same
+  code* with *different settings*.
+- **Environment variables** = named values the operating system hands a program when it
+  starts (`PORT=8080`). Every language can read them; containers, CI and cloud platforms
+  all know how to set them. Our sources: `.env` → loaded by `make` and Docker Compose.
+- `os.Getenv("X")` in Go returns a **string**, and an **empty string if it's missing** —
+  it can't tell you "not set" vs "set to empty", and it never converts types.
+
+```
+.env file ──► make / docker compose ──► env vars ──► Go program reads them at startup
+                                                     ──► one Config struct, checked
+```
+
+### Why it matters
+
+- **Fail fast:** read and validate *everything* at startup. A missing `DATABASE_URL`
+  should stop the program immediately with a clear message — not cause a confusing
+  error on some user's request an hour later.
+- **One place:** every setting the app understands is listed in one struct. New team
+  member? Read that file.
+- **Secrets stay out of code and git:** `.env` is git-ignored; production gets values from
+  its environment (later: AWS Secrets Manager / SSM).
+- This is factor III of the **Twelve-Factor App** ("store config in the environment") —
+  the classic guide for apps that run in containers and the cloud.
+
+### What we chose
+
+**`caarlos0/env`** (Part 0.2, decision C): describe settings once as a struct with
+**struct tags** — labels in backticks that the library reads:
+
+```go
+type Config struct {
+    Port            string        `env:"PORT"             envDefault:"8080"`
+    DatabaseURL     string        `env:"DATABASE_URL,required"`
+    ShutdownTimeout time.Duration `env:"SHUTDOWN_TIMEOUT" envDefault:"10s"`
+}
+```
+
+The library fills the struct, converts types (`"10s"` → `10*time.Second`), applies
+defaults, and errors on missing `required` values. Our own `Validate()` adds rules tags
+can't express (e.g. port range).
+
+Options we didn't pick: **hand-written** `os.Getenv` + parsing (no dependency, but ~4 lines
+of repetition per setting) and **Viper** (files + env + flags + live reload — overkill and heavy).
+
+### In our code
+
+| Code | What it is |
+|---|---|
+| [`backend/cmd/api/main.go:40`](../backend/cmd/api/main.go#L40) | **Before 0.2:** settings read by hand with `os.Getenv` |
+| [`.env.example`](../.env.example) | The list of settings and example values (copied to `.env`) |
+
+*(Links to `internal/platform/config` get added when it's built.)*
+
+### Gotchas
+
+- **Never log the whole config** — it contains secrets (DB password, later JWT keys).
+- **Don't read env vars deep inside the code** — read once into `Config`, then pass
+  values down. Otherwise you can't see what the app depends on, and tests get painful.
+- **Defaults are for convenience, not for secrets** — a secret should be `required`, never
+  defaulted to something like `"changeme"`.
+- Env vars are strings: `"false"`, `"0"` and `""` are all different — let the library parse booleans.
+
+### Go deeper
+
+- *The Twelve-Factor App* — 12factor.net (short, read all 12; factor III is config)
+- `github.com/caarlos0/env` README — every supported tag
+- Go docs: `reflect.StructTag` — how libraries read struct tags
+
+### Interview angle
+
+- "How do you manage config across environments?" → env vars, validated at startup, secrets from a secret manager, nothing in git.
+- "How do you rotate a secret?" → change it in the secret store and restart/redeploy; that's why config must be outside the code.
