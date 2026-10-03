@@ -3,7 +3,7 @@
 Important concepts that come up while we design and build. Each note is short enough to
 re-read in 5 minutes, with pointers for going deeper in your free time.
 
-Format per note: **What it is → Why it matters → What we chose → Go deeper → Interview angle.**
+Format per note: **What it is → Why it matters → What we chose → In our code → Gotchas → Go deeper → Interview angle.**
 
 ## Index
 
@@ -79,6 +79,37 @@ caching, load balancing — Nginx, Caddy, HAProxy, Envoy, AWS ALB are all revers
 WebSockets need the proxy to pass through the HTTP `Upgrade` handshake — Vite needs
 `ws: true` in its proxy config; Caddy does it automatically.
 
+### In our code
+
+| File | What it does |
+|---|---|
+| [`web/vite.config.ts`](../web/vite.config.ts) (lines 11–13) | **Dev proxy.** Vite forwards `/api/*` to Go on `localhost:8080` |
+| [`web/Caddyfile`](../web/Caddyfile) (lines 7–9) | **Full-mode proxy.** Caddy forwards `/api/*` to the `api` container |
+| [`web/Caddyfile`](../web/Caddyfile) (lines 13–17) | Everything else gets the React files (that's why `/livez` isn't exposed) |
+| [`web/src/status/api.ts`](../web/src/status/api.ts) | React calls `fetch('/api/status')` — a **relative** path, so it goes to whichever proxy served the page |
+
+```ts
+// web/vite.config.ts — dev mode
+proxy: {
+  '/api': 'http://localhost:8080',   // "/api…" → Go on your machine
+},
+```
+
+```
+# web/Caddyfile — full mode
+handle /api/* {
+    reverse_proxy api:8080           # "/api/…" → the Go container (by its compose service name)
+}
+```
+
+```ts
+// web/src/status/api.ts — the React side
+fetch('/api/status', ...)            // no host → same origin as the page
+```
+
+**See it yourself:** `make dev` → open the page → DevTools (F12) → Network → click
+`status`. The request URL is `localhost:5174/api/status` — the browser never talks to `:8080`.
+
 ### Gotchas
 
 - **CORS is not server security.** It only restrains browsers. `curl` or a script ignores
@@ -147,6 +178,35 @@ taking traffic (readiness fails), and come back on their own when the DB returns
 - Docker Compose `healthcheck:` uses them in full mode; Phase 3's load balancer and
   Phase 7's Kubernetes will too
 - `/startupz` gets added when slow startup work appears (migrations on boot)
+
+### In our code
+
+| File | What it does |
+|---|---|
+| [`backend/internal/health/checker.go`](../backend/internal/health/checker.go) | `CheckPostgres` — pings the DB with a **1 s timeout** (`context.WithTimeout`) |
+| [`backend/internal/health/handler.go`](../backend/internal/health/handler.go) | `livez` (checks nothing), `readyz` (200/503 from the DB check), `status` (details for the UI) |
+| [`backend/internal/health/handler_test.go`](../backend/internal/health/handler_test.go) | `TestLivez_DBDown_StillReturns200` — this note's main rule, as a test |
+| [`backend/internal/health/probe.go`](../backend/internal/health/probe.go) + [`backend/cmd/api/main.go`](../backend/cmd/api/main.go) | `api healthcheck` subcommand — the binary checks its own `/livez` (no curl in distroless) |
+| [`compose.yaml`](../compose.yaml) | `healthcheck:` for postgres (`pg_isready`) and api (`/api healthcheck`) |
+
+```go
+// handler.go — liveness deliberately checks nothing
+func (h *Handler) livez(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "alive"})
+}
+
+// readiness checks the database
+func (h *Handler) readyz(w http.ResponseWriter, r *http.Request) {
+	if h.checker.CheckPostgres(r.Context()).Status != StatusOK {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+}
+```
+
+**See it yourself:** `make dev`, then `docker compose stop postgres` and run
+`curl -i localhost:8080/livez` (200) vs `curl -i localhost:8080/readyz` (503).
 
 ### Gotchas
 
@@ -228,6 +288,20 @@ ENTRYPOINT ["/api"]
 **`gcr.io/distroless/static:nonroot`** (Part 0.1, decision E). Go compiles to one
 static binary when `CGO_ENABLED=0`, so it needs nothing from the OS except CA
 certificates (to verify HTTPS servers like S3) and timezone data — exactly what distroless/static gives.
+
+### In our code
+
+| File | What it does |
+|---|---|
+| [`backend/Dockerfile`](../backend/Dockerfile) | Go: `golang:1.27` build stage → `distroless/static:nonroot` run stage |
+| [`backend/.dockerignore`](../backend/.dockerignore) | Keeps `tmp/`, `.env` out of the build |
+| [`web/Dockerfile`](../web/Dockerfile) | React: `node:24-alpine` builds static files → `caddy:2-alpine` serves them |
+| [`compose.yaml`](../compose.yaml) | `build:` for `api` and `web`; passes the git commit as `VERSION` |
+
+Result: `relay-api` image = **20 MB** (vs ~800 MB for the `golang` build image).
+
+**See it yourself:** `make up-full`, then `docker images | grep relay` and
+`docker history relay-api`.
 
 ### Gotchas
 
