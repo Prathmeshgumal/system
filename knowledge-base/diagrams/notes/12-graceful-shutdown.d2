@@ -1,0 +1,14 @@
+# Full graceful shutdown: tell the load balancer first, then drain, then stop.
+direction: down
+
+sig: "SIGTERM (deploy / docker stop)" {shape: oval}
+s1: "1. /readyz -> 503 'shutting down'\n(still serving normally)" {style.fill: "#fff3e0"}
+s2: "2. wait DRAIN_DELAY (~5s prod, 0s dev)\nload balancer's next check fails -> stops sending new users" {style.fill: "#fff3e0"}
+s3: "3. srv.Shutdown: stop accepting,\nfinish in-flight requests (<= SHUTDOWN_TIMEOUT)" {style.fill: "#e3f2fd"}
+s4: "4. close DB pool" {style.fill: "#e3f2fd"}
+s5: "5. flush logs (zap Sync)" {style.fill: "#e3f2fd"}
+s6: "6. exit 0" {shape: oval; style.fill: "#e8f5e9"}
+force: "second Ctrl+C / SIGTERM\n-> exit immediately" {shape: text}
+
+sig -> s1 -> s2 -> s3 -> s4 -> s5 -> s6
+force -> s6 {style.stroke-dash: 4}

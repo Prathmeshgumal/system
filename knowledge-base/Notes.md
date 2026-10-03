@@ -20,6 +20,7 @@ Format per note: **What it is → Why it matters → What we chose → In our co
 | 9 | [Database migrations](#9-database-migrations) | Part 0.2, decisions G–H |
 | 10 | [Unit vs integration tests (Testcontainers)](#10-unit-vs-integration-tests-testcontainers) | Part 0.2, decision I |
 | 11 | [Database connection pooling](#11-database-connection-pooling) | Part 0.2, decision J |
+| 12 | [Graceful shutdown & connection draining](#12-graceful-shutdown--connection-draining) | Part 0.2, decision K |
 
 ---
 
@@ -267,7 +268,7 @@ func (h *Handler) readyz(w http.ResponseWriter, r *http.Request) {
 - **Don't check *other services* in readiness** unless you truly can't work without them —
   otherwise one failing service cascades into marking everything unready.
 - **Graceful shutdown uses readiness:** on shutdown, first fail `/readyz` so the LB stops
-  sending new requests, *then* finish in-flight requests, *then* exit. We'll do this in 0.2.
+  sending new requests, *then* finish in-flight requests, *then* exit. Full sequence: [Note 12](#12-graceful-shutdown--connection-draining).
 - Health endpoints can leak internals (versions, hostnames) — keep details minimal on public routes.
 
 ### Go deeper
@@ -1049,3 +1050,89 @@ a few real ones — the answer to the 100-connection limit at scale; coming in P
 
 - "Why use a connection pool?" → handshake cost; bounded resources; Postgres connection limit.
 - "Your DB says 'too many connections' after you scaled out — why and how do you fix it?" → pools × copies exceed `max_connections`; shrink pools, add PgBouncer, or scale the DB.
+
+---
+
+## 12. Graceful shutdown & connection draining
+
+*Came up in Part 0.2 — how the backend stops without dropping users' requests.*
+
+![graceful shutdown](diagrams/notes/12-graceful-shutdown.svg)
+
+### Basics first
+
+- **Deploy** = replacing running copies of the backend with new ones. Each old copy is
+  asked to stop.
+- **Signals** — the operating system's way to poke a process:
+  - **`SIGTERM`** — "please stop" (sent by `docker stop`, Kubernetes, deploy tools). The
+    program can catch it and clean up.
+  - **`SIGINT`** — the same, sent by **Ctrl+C**.
+  - **`SIGKILL`** — "stop *now*". Can't be caught; no cleanup. Sent if the program is
+    still running after a grace period (Docker: 10 s by default).
+- **In-flight requests** — requests a copy is in the middle of handling. Stopping
+  abruptly cuts them off → errors for those users.
+- **Draining** — letting a copy finish its current work while no new work is sent to it.
+
+### The problem the full sequence solves
+
+The load balancer learns that a copy is leaving only through **health checks** every few
+seconds (Note 2). If the copy stops accepting connections the instant it gets `SIGTERM`,
+there's a window where the load balancer still sends users to it:
+
+```
+0.0s       SIGTERM → stop accepting immediately
+0.0–5.0s   load balancer hasn't re-checked → still sends users → ❌ refused
+5.0s       next health check fails → load balancer stops sending
+```
+
+### What we chose
+
+**The full sequence** (Part 0.2, decision K):
+
+1. `/readyz` starts returning **503 "shutting down"** — while still serving normally
+2. wait **`SHUTDOWN_DRAIN_DELAY`** (0 s in dev so Ctrl+C stays instant; ~5 s in production)
+   → the load balancer's next check fails and it stops sending new users
+3. `srv.Shutdown` — stop accepting, let in-flight requests finish (≤ **`SHUTDOWN_TIMEOUT`**, 10 s)
+4. close the database pool
+5. flush logs (`zap` `Sync`, Note 6)
+6. exit 0
+
+A **second Ctrl+C / SIGTERM** exits immediately, so it never feels stuck.
+
+Tested by sending a slow request, triggering shutdown, and checking that `/readyz` flipped
+to 503 first and the slow request still completed.
+
+The option we didn't pick: keep the **0.1 version** (stop accepting immediately) — fine
+on a laptop, but drops requests on every deploy behind a load balancer.
+
+### In our code
+
+| Code | What it is |
+|---|---|
+| [`backend/cmd/api/main.go:81`](../backend/cmd/api/main.go#L81) | **The 0.1 version:** catch the signal, `srv.Shutdown` with a 10 s limit (line 86) |
+
+*(Links to the full sequence in `internal/platform/httpserver` get added when it's built.)*
+
+### Gotchas
+
+- **Total time must fit inside the platform's grace period**: drain delay + shutdown
+  timeout < time before `SIGKILL` (Docker's default is 10 s → we'll set
+  `stop_grace_period` in Compose accordingly).
+- **Long-lived connections don't drain on their own** — WebSockets (Part 1.3) stay open
+  for hours; `srv.Shutdown` doesn't close them. They need their own "please reconnect"
+  message. We'll handle that in Part 1.3.
+- **Background goroutines** (timers, workers) must also be told to stop (via `context`),
+  or they're cut off mid-work.
+- **PID 1 in containers:** the process must actually receive `SIGTERM` — using
+  `ENTRYPOINT ["/api"]` (exec form, as we do) rather than a shell wrapper ensures that.
+
+### Go deeper
+
+- Go docs: `http.Server.Shutdown`, `signal.NotifyContext`
+- Kubernetes docs: *Pod termination* — `preStop` hooks and `terminationGracePeriodSeconds`
+- AWS docs: *Deregistration delay* on target groups (ALB's version of draining)
+
+### Interview angle
+
+- "How do you deploy without downtime?" → rolling deploy + readiness + connection draining + graceful shutdown + backward-compatible migrations.
+- "What happens to WebSocket connections during a deploy?" → they're cut; clients must reconnect (with backoff) and catch up — design for it.
