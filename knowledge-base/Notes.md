@@ -847,6 +847,25 @@ files; "dirty" state after a failed migration needs manual cleanup) and **Atlas*
 (declarative — describe the end state, it computes the SQL; powerful but hides the very
 SQL you're learning).
 
+### When migrations run (decision H)
+
+Migrations must finish **before** new code that needs them serves users. With several
+backend copies (Phase 3), running them inside each copy's startup makes the copies race.
+
+| Option | How | Verdict |
+|---|---|---|
+| App runs them at startup | `api` → goose up → serve | Simple, but copies race (lock), slow startups, app needs schema-change rights |
+| **Separate step before the app** ✅ | `api migrate` runs and exits, *then* `api` starts | One run per deploy; standard production pattern |
+| Manual only | `make migrate` when you remember | Easy to forget; doesn't scale |
+
+**What we chose:** the same binary gets a `migrate` subcommand (like `healthcheck` in 0.1).
+- **Dev:** `make migrate`; `make dev` runs it automatically after Postgres starts.
+- **Full mode:** a one-off `migrate` service in Compose; the `api` service starts only
+  after it **completes successfully** (`depends_on: condition: service_completed_successfully`).
+- **Later (AWS/Kubernetes):** a "run once before deploy" job — same idea.
+
+Because the app no longer migrates on boot, we still don't need the `/startupz` probe (Note 2).
+
 ### In our code
 
 *(Links to the migrations folder and the migrate command get added when they're built.)*
