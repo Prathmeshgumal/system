@@ -26,6 +26,7 @@ shutdown sequence.
 | I | Integration-test DB | **Testcontainers** (`testcontainers-go`): fresh `postgres:18` per test package, goose migrations applied, container removed afterwards; each test owns its rows | Fully isolated, never touches dev data, `go test` just works — [Note 10](../../../Notes.md#10-unit-vs-integration-tests-testcontainers) |
 | J | Connection pool | **Explicit, configurable pool settings** (max 10, min 2, lifetime 1 h, idle 30 min) + **live pool stats in `/api/status`** (in use, idle, total, waits) | Learn every knob; numbers visible for the Part 1.4 load test; PgBouncer waits for Phase 3 — [Note 11](../../../Notes.md#11-database-connection-pooling) |
 | K | Graceful shutdown | **Full sequence:** `/readyz` → 503, wait `SHUTDOWN_DRAIN_DELAY` (0 s dev / ~5 s prod), `srv.Shutdown` (≤ `SHUTDOWN_TIMEOUT` 10 s), close pool, flush logs, exit; second signal exits immediately; covered by a test | Zero dropped requests during deploys behind a load balancer — [Note 12](../../../Notes.md#12-graceful-shutdown--connection-draining) |
+| L | Demo table | **Throwaway `notes` feature, full slice**: `notes (id, body, created_at)` → goose migration → sqlc queries → store → service → handler; `POST /api/notes`, `GET /api/notes` (latest 20); integration + handler tests. Dropped by a new migration at the start of Part 1.1 | Practise the exact handler → service → store pattern every feature uses, on something with no tricky rules — [Note 4](../../../Notes.md#4-go-packages--project-layout) |
 
 ## Sections
 
