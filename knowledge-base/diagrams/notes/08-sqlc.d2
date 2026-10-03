@@ -1,0 +1,24 @@
+# sqlc: you write SQL, a tool writes the Go code, at build time.
+direction: right
+
+you: "You write" {
+  style.fill: "#e3f2fd"
+  schema: "migrations/*.sql\n(CREATE TABLE ...)" {shape: page}
+  queries: "queries/*.sql\n-- name: GetUser :one\nSELECT ... WHERE id = $1" {shape: page}
+}
+
+sqlc: "sqlc generate\n(checks SQL against the tables)" {shape: hexagon}
+
+gen: "Generated Go (don't edit)" {
+  style.fill: "#e8f5e9"
+  code: "func (q *Queries) GetUser(ctx, id) (User, error)" {shape: page}
+}
+
+app: "Your service code\nq.GetUser(ctx, 42)"
+pg: "Postgres" {shape: cylinder}
+
+you.schema -> sqlc
+you.queries -> sqlc
+sqlc -> gen.code: "typo in a column?\nfails HERE, not in production"
+gen.code -> app
+app -> pg: "pgx driver"

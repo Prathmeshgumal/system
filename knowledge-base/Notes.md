@@ -16,6 +16,7 @@ Format per note: **What it is → Why it matters → What we chose → In our co
 | 5 | [Configuration via environment variables](#5-configuration-via-environment-variables) | Part 0.2, decision C |
 | 6 | [Structured logging & request IDs](#6-structured-logging--request-ids) | Part 0.2, decision D |
 | 7 | [HTTP routing & middleware](#7-http-routing--middleware) | Part 0.2, decision E |
+| 8 | [Talking to the database: driver, ORM or sqlc](#8-talking-to-the-database-driver-orm-or-sqlc) | Part 0.2, decision F |
 
 ---
 
@@ -730,3 +731,73 @@ the framework instead of Go's HTTP model).
 
 - "What is middleware and where would you put auth / rate limiting / logging?" → wrapping handlers; cross-cutting concerns; order.
 - "What happens if a handler panics?" → recover middleware → 500 + log; without it, Go's server recovers per-connection but you lose the logging and response control.
+
+---
+
+## 8. Talking to the database: driver, ORM or sqlc
+
+*Came up in Part 0.2 — how Go code reads and writes data.*
+
+![sqlc](diagrams/notes/08-sqlc.svg)
+
+### Basics first
+
+- **SQL** — the language for asking a relational database for data:
+  `SELECT id, name FROM users WHERE id = 42`.
+- **Table / row / column** — a table is like a spreadsheet: columns are the fields
+  (`id`, `name`), each row is one record (one user).
+- **Driver** — the library that sends SQL from Go to Postgres and brings rows back. Ours
+  is **pgx** (plus its connection pool, `pgxpool`). Every approach below sits on top of it.
+- **Placeholders (`$1`, `$2`)** — values are sent *separately* from the SQL text, never
+  glued into the string. This is what prevents **SQL injection** (a user typing
+  `'; DROP TABLE users; --` into a form).
+- **Scanning** — copying columns of a returned row into fields of a Go struct.
+
+### The options
+
+| Approach | You write | Mistakes caught | Hidden? |
+|---|---|---|---|
+| **Plain pgx** | SQL strings + every `Scan` by hand | at runtime | nothing hidden, lots of repetition |
+| **sqlc** ✅ | SQL in `.sql` files | **at generate time** | nothing — generated code is plain pgx |
+| **ORM (GORM)** | Go method chains; SQL is generated at runtime | at runtime | the SQL itself |
+
+**N+1 problem** (why ORMs bite): loading 100 chats and then, in a loop, each chat's last
+message = 1 + 100 queries. One SQL `JOIN` would do it in 1. ORMs make the slow version
+the easy one to write; with SQL in front of you, you see it.
+
+### What we chose
+
+**sqlc** (Part 0.2, decision F):
+
+1. Tables are defined by **migrations** (`CREATE TABLE …`).
+2. Queries live in `.sql` files, each with a name and a result kind:
+   `-- name: GetUser :one` (one row), `:many` (list), `:exec` (no rows back).
+3. `sqlc generate` (we'll add `make sqlc`) reads both, **checks every query against the
+   real table definitions**, and writes Go functions + structs.
+4. App code calls `q.GetUser(ctx, 42)` — typed, no strings, no `Scan`.
+
+You still write real SQL (the skill that matters), and the generated code is readable pgx.
+
+### In our code
+
+*(Links to `sqlc.yaml`, the query files and generated code get added when they're built.)*
+
+### Gotchas
+
+- **Never edit generated files** — they're overwritten on the next `sqlc generate`. Change the SQL instead.
+- **Commit the generated code** so the project builds without sqlc installed — and re-run
+  generate whenever SQL changes (a check for "generated code is up to date" is a good CI step later).
+- **Dynamic queries** (search with optional filters) are awkward in sqlc — common workarounds:
+  `WHERE ($1::text IS NULL OR name = $1)`, or hand-written pgx for that one query.
+- `SELECT *` breaks silently when columns are added — list columns explicitly.
+
+### Go deeper
+
+- sqlc docs: *Getting started with PostgreSQL* (docs.sqlc.dev)
+- pgx README — connection pool, types, why pgx over `database/sql` for Postgres
+- *Use The Index, Luke* (use-the-index-luke.com) — free, the best intro to SQL performance
+
+### Interview angle
+
+- "ORM or raw SQL?" → trade-offs: productivity vs control, N+1, hidden queries; codegen (sqlc) as a middle ground.
+- "How do you prevent SQL injection?" → parameterised queries / placeholders, never string concatenation.
