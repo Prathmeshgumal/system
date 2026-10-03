@@ -53,7 +53,20 @@ Tests: 13 Go tests (`go test ./...` in `backend/`), 6 React tests (`pnpm test` i
    `make web` and `make api` in three terminals, then Ctrl+C the API one).
 2. What does the page show? What does the browser's Network tab show for `/api/status` — and who answered (Vite or Go)?
 
-**Your results:**
+**Your results:** ✅ done 2026-10-03
+- Ctrl+C on the API printed `shutting down` → `stopped cleanly`: **graceful shutdown** worked.
+- Page: **API unreachable, Postgres unknown** (with the API gone, nobody can report on the DB).
+- Network tab: `200 … 200` then **`502`** from the moment the API stopped. Every request went
+  to `localhost:5173/api/status` — the browser never talks to `:8080` (the proxy, Note 1).
+- Who answers when Go is dead? **Vite.** Through the proxy:
+  `curl -i localhost:5173/api/status` → `502 Bad Gateway`, `Content-Type: text/plain`
+  (not our JSON → React shows "unreachable"). Directly: `curl localhost:8080/api/status` →
+  `Could not connect to server` — nobody is listening.
+  - **502** = the proxy is up, the server behind it isn't (receptionist: "they're unavailable").
+  - **Connection refused** = nothing at that address at all (the phone just rings out).
+- Restarting the API (`make api`) → page went green **by itself** within one poll.
+- Gotcha hit: the Vite port moved from 5174 (yesterday, 5173 was taken by another project)
+  back to **5173** today. Always use the URL Vite prints.
 
 ### 3. Image sizes
 Change the final `FROM` in `backend/Dockerfile`, rebuild with
