@@ -1,6 +1,6 @@
 // Package health answers "is this server OK?" for two audiences:
 // infrastructure (Docker, load balancers, Kubernetes) via /livez and /readyz,
-// and humans via /api/status. See knowledge-base/Notes.md, note 2.
+// and humans via /api/status. See knowledge-base/notes/phase-0-notes.md, note 2.
 package health
 
 import (

@@ -18,11 +18,11 @@ library, full graceful-shutdown sequence (0.2) · routing, TanStack Query, Tailw
 
 | # | Decision | Chosen | Why | Note |
 |---|---|---|---|---|
-| A | Where Go & React run in dev | **Hybrid + full mode**: Go and Vite on the host, Postgres in Docker; `make up-full` runs everything in containers | Fast daily loop *and* learn Dockerfiles now; Phase 2 reuses the images | [Note 3](../../../Notes.md#3-multi-stage-docker-builds--base-images) |
+| A | Where Go & React run in dev | **Hybrid + full mode**: Go and Vite on the host, Postgres in Docker; `make up-full` runs everything in containers | Fast daily loop *and* learn Dockerfiles now; Phase 2 reuses the images | [Note 3](../../../notes/phase-0-notes.md#3-multi-stage-docker-builds--base-images) |
 | B | Command runner | **make** | Already installed, standard in Go repos | — |
-| C | How React reaches the API | **Same origin via reverse proxy** (Vite in dev, Caddy in full/prod) | No CORS, simple cookies for auth in 1.1, same proxy grows into the LB | [Note 1](../../../Notes.md#1-same-origin-policy-cors--reverse-proxies) |
-| D | Health checks | **`/livez` + `/readyz`** (startup probe later) | Avoid the DB-blip restart storm; ready for LBs and Kubernetes | [Note 2](../../../Notes.md#2-health-checks-liveness-vs-readiness) |
-| E | Go runtime image | **`gcr.io/distroless/static:nonroot`** | Tiny, non-root, has CA certs + tzdata | [Note 3](../../../Notes.md#3-multi-stage-docker-builds--base-images) |
+| C | How React reaches the API | **Same origin via reverse proxy** (Vite in dev, Caddy in full/prod) | No CORS, simple cookies for auth in 1.1, same proxy grows into the LB | [Note 1](../../../notes/phase-0-notes.md#1-same-origin-policy-cors--reverse-proxies) |
+| D | Health checks | **`/livez` + `/readyz`** (startup probe later) | Avoid the DB-blip restart storm; ready for LBs and Kubernetes | [Note 2](../../../notes/phase-0-notes.md#2-health-checks-liveness-vs-readiness) |
+| E | Go runtime image | **`gcr.io/distroless/static:nonroot`** | Tiny, non-root, has CA certs + tzdata | [Note 3](../../../notes/phase-0-notes.md#3-multi-stage-docker-builds--base-images) |
 
 Smaller choices (made by Claude, overridable): `air` for Go live reload · `compose.yaml`
 at repo root · Postgres 18 · ports 5173 (Vite), 8080 (API), 5432 (Postgres), 8000 (full mode).
@@ -179,4 +179,4 @@ Plain `fetch` + `useEffect`, minimal CSS — routing, TanStack Query and Tailwin
 - [ ] `make up-full` → all healthy at `:8000`; `docker compose ps` shows api + postgres **healthy**
 - [ ] `make test` and `make smoke` pass
 - [ ] All 4 experiments done and written up in `learnings.md`
-- [ ] New concepts added to `Notes.md`; tracker shows 0.1 as ✅
+- [ ] New concepts added to `notes/phase-0-notes.md`; tracker shows 0.1 as ✅

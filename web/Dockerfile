@@ -1,4 +1,4 @@
-# Multi-stage build — see knowledge-base/Notes.md, note 3.
+# Multi-stage build — see knowledge-base/notes/phase-0-notes.md, note 3.
 
 # ---- stage 1: build the React app into static files ----
 FROM node:24-alpine AS build

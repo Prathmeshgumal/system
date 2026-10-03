@@ -1,6 +1,6 @@
 # Full-mode reverse proxy — the production version of Vite's dev proxy.
 # The browser only ever talks to Caddy, so React and the API share one origin.
-# See knowledge-base/Notes.md, note 1.
+# See knowledge-base/notes/phase-0-notes.md, note 1.
 :80 {
 	# Only /api is forwarded. /livez and /readyz are for infrastructure and
 	# are deliberately NOT exposed here. (/ws is added in Part 1.3.)

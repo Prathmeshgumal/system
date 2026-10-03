@@ -1,4 +1,4 @@
-# Notes — Concepts to Revisit
+# Phase 0 Notes — Concepts to Revisit
 
 Important concepts that come up while we design and build. Each note is short enough to
 re-read in 5 minutes, with pointers for going deeper in your free time.
@@ -29,7 +29,7 @@ Format per note: **What it is → Why it matters → What we chose → In our co
 
 *Came up in Part 0.1 — how the React app reaches the Go API.*
 
-![same origin vs cors](diagrams/notes/01-same-origin-proxy.svg)
+![same origin vs cors](../diagrams/notes/01-same-origin-proxy.svg)
 
 ### What it is
 
@@ -93,12 +93,12 @@ WebSockets need the proxy to pass through the HTTP `Upgrade` handshake — Vite 
 
 | Code | What it does |
 |---|---|
-| [`web/vite.config.ts:12`](../web/vite.config.ts#L12) | **Dev proxy.** Vite forwards `/api/*` to Go on `localhost:8080` |
-| [`web/Caddyfile:7`](../web/Caddyfile#L7) | **Full-mode proxy.** Caddy forwards `/api/*` to the `api` container |
-| [`web/Caddyfile:13`](../web/Caddyfile#L13) | Everything else gets the React files (that's why `/livez` isn't exposed) |
-| [`web/src/status/api.ts:17`](../web/src/status/api.ts#L17) | React calls `fetch('/api/status')` — a **relative** path, so it goes to whichever proxy served the page |
+| [`web/vite.config.ts:12`](../../web/vite.config.ts#L12) | **Dev proxy.** Vite forwards `/api/*` to Go on `localhost:8080` |
+| [`web/Caddyfile:7`](../../web/Caddyfile#L7) | **Full-mode proxy.** Caddy forwards `/api/*` to the `api` container |
+| [`web/Caddyfile:13`](../../web/Caddyfile#L13) | Everything else gets the React files (that's why `/livez` isn't exposed) |
+| [`web/src/status/api.ts:17`](../../web/src/status/api.ts#L17) | React calls `fetch('/api/status')` — a **relative** path, so it goes to whichever proxy served the page |
 
-[`web/vite.config.ts:12`](../web/vite.config.ts#L12)
+[`web/vite.config.ts:12`](../../web/vite.config.ts#L12)
 
 ```ts
 // web/vite.config.ts — dev mode
@@ -107,7 +107,7 @@ proxy: {
 },
 ```
 
-[`web/Caddyfile:7`](../web/Caddyfile#L7)
+[`web/Caddyfile:7`](../../web/Caddyfile#L7)
 
 ```
 # web/Caddyfile — full mode
@@ -116,7 +116,7 @@ handle /api/* {
 }
 ```
 
-[`web/src/status/api.ts:17`](../web/src/status/api.ts#L17)
+[`web/src/status/api.ts:17`](../../web/src/status/api.ts#L17)
 
 ```ts
 // web/src/status/api.ts — the React side
@@ -160,7 +160,7 @@ fetch('/api/status', ...)            // no host → same origin as the page
 
 *Came up in Part 0.1 — what `/health` should check.*
 
-![liveness vs readiness](diagrams/notes/02-liveness-readiness.svg)
+![liveness vs readiness](../diagrams/notes/02-liveness-readiness.svg)
 
 **Reading the diagram:** "copy A" and "copy B" are two identical copies of the **Go backend
 only** — the frontend isn't here (it's static files served separately by Caddy/a CDN). The
@@ -228,19 +228,19 @@ taking traffic (readiness fails), and come back on their own when the DB returns
 
 | Code | What it does |
 |---|---|
-| [`backend/internal/health/checker.go:41`](../backend/internal/health/checker.go#L41) | `CheckPostgres` — pings the DB with a **1 s timeout** (`context.WithTimeout`, next line) |
-| [`backend/internal/health/handler.go:33`](../backend/internal/health/handler.go#L33) | `Register` — which URL goes to which function |
-| [`backend/internal/health/handler.go:41`](../backend/internal/health/handler.go#L41) | `livez` — checks nothing |
-| [`backend/internal/health/handler.go:46`](../backend/internal/health/handler.go#L46) | `readyz` — 200 or 503 from the DB check |
-| [`backend/internal/health/handler.go:55`](../backend/internal/health/handler.go#L55) | `status` — details for the UI |
-| [`backend/internal/health/checker_test.go:47`](../backend/internal/health/checker_test.go#L47) | `TestCheckPostgres_PingHangs_GivesUpAtTimeout` — proves the 1-second limit works |
-| [`backend/internal/health/handler_test.go:41`](../backend/internal/health/handler_test.go#L41) | `TestLivez_DBDown_StillReturns200` — this note's main rule, as a test |
-| [`backend/cmd/api/main.go:93`](../backend/cmd/api/main.go#L93) | `healthcheck()` — the binary checks its own `/livez` (no curl in distroless)… |
-| [`backend/internal/health/probe.go:13`](../backend/internal/health/probe.go#L13) | …using `Probe` |
-| [`compose.yaml:16`](../compose.yaml#L16) | Postgres healthcheck (`pg_isready`) |
-| [`compose.yaml:34`](../compose.yaml#L34) | API healthcheck (`/api healthcheck`) |
+| [`backend/internal/health/checker.go:41`](../../backend/internal/health/checker.go#L41) | `CheckPostgres` — pings the DB with a **1 s timeout** (`context.WithTimeout`, next line) |
+| [`backend/internal/health/handler.go:33`](../../backend/internal/health/handler.go#L33) | `Register` — which URL goes to which function |
+| [`backend/internal/health/handler.go:41`](../../backend/internal/health/handler.go#L41) | `livez` — checks nothing |
+| [`backend/internal/health/handler.go:46`](../../backend/internal/health/handler.go#L46) | `readyz` — 200 or 503 from the DB check |
+| [`backend/internal/health/handler.go:55`](../../backend/internal/health/handler.go#L55) | `status` — details for the UI |
+| [`backend/internal/health/checker_test.go:47`](../../backend/internal/health/checker_test.go#L47) | `TestCheckPostgres_PingHangs_GivesUpAtTimeout` — proves the 1-second limit works |
+| [`backend/internal/health/handler_test.go:41`](../../backend/internal/health/handler_test.go#L41) | `TestLivez_DBDown_StillReturns200` — this note's main rule, as a test |
+| [`backend/cmd/api/main.go:93`](../../backend/cmd/api/main.go#L93) | `healthcheck()` — the binary checks its own `/livez` (no curl in distroless)… |
+| [`backend/internal/health/probe.go:13`](../../backend/internal/health/probe.go#L13) | …using `Probe` |
+| [`compose.yaml:16`](../../compose.yaml#L16) | Postgres healthcheck (`pg_isready`) |
+| [`compose.yaml:34`](../../compose.yaml#L34) | API healthcheck (`/api healthcheck`) |
 
-[`backend/internal/health/handler.go:41`](../backend/internal/health/handler.go#L41)
+[`backend/internal/health/handler.go:41`](../../backend/internal/health/handler.go#L41)
 
 ```go
 // handler.go — liveness deliberately checks nothing
@@ -291,7 +291,7 @@ func (h *Handler) readyz(w http.ResponseWriter, r *http.Request) {
 
 *Came up in Part 0.1 — which image the Go binary runs in.*
 
-![multi-stage build](diagrams/notes/03-multi-stage-build.svg)
+![multi-stage build](../diagrams/notes/03-multi-stage-build.svg)
 
 ### Docker basics first
 
@@ -305,8 +305,8 @@ func (h *Handler) readyz(w http.ResponseWriter, r *http.Request) {
 - **Image** — the frozen snapshot a container starts from. Image : container =
   class : object. One image can start many containers.
 - **Where images come from:** *downloaded* ready-made (`image: postgres:18` in
-  [`compose.yaml:7`](../compose.yaml#L7)) or *built* by us from a Dockerfile
-  (`build: ./backend` in [`compose.yaml:24`](../compose.yaml#L24)) — nobody publishes an image of *our* app.
+  [`compose.yaml:7`](../../compose.yaml#L7)) or *built* by us from a Dockerfile
+  (`build: ./backend` in [`compose.yaml:24`](../../compose.yaml#L24)) — nobody publishes an image of *our* app.
 - **Dockerfile** — the recipe: start from X, copy code in, build it, run it.
   **`docker build`** follows the recipe and produces an image (`make up-full` does this for you).
 - **Base image** — the `FROM` line: the existing image the recipe starts from, like
@@ -378,13 +378,13 @@ certificates (to verify HTTPS servers like S3) and timezone data — exactly wha
 
 | Code | What it does |
 |---|---|
-| [`backend/Dockerfile:4`](../backend/Dockerfile#L4) | Go **build** stage: `golang:1.27` |
-| [`backend/Dockerfile:18`](../backend/Dockerfile#L18) | Go **run** stage: `distroless/static:nonroot`, and the next line copies in only the binary |
-| [`backend/.dockerignore:1`](../backend/.dockerignore#L1) | Keeps `tmp/`, `.env` out of the build |
-| [`web/Dockerfile:4`](../web/Dockerfile#L4) | React **build** stage: `node:24-alpine` |
-| [`web/Dockerfile:16`](../web/Dockerfile#L16) | React **run** stage: `caddy:2-alpine` serves the built files |
-| [`compose.yaml:24`](../compose.yaml#L24) | `build:` for `api`; passes the git commit as `VERSION` (line 27) |
-| [`compose.yaml:44`](../compose.yaml#L44) | `build:` for `web` |
+| [`backend/Dockerfile:4`](../../backend/Dockerfile#L4) | Go **build** stage: `golang:1.27` |
+| [`backend/Dockerfile:18`](../../backend/Dockerfile#L18) | Go **run** stage: `distroless/static:nonroot`, and the next line copies in only the binary |
+| [`backend/.dockerignore:1`](../../backend/.dockerignore#L1) | Keeps `tmp/`, `.env` out of the build |
+| [`web/Dockerfile:4`](../../web/Dockerfile#L4) | React **build** stage: `node:24-alpine` |
+| [`web/Dockerfile:16`](../../web/Dockerfile#L16) | React **run** stage: `caddy:2-alpine` serves the built files |
+| [`compose.yaml:24`](../../compose.yaml#L24) | `build:` for `api`; passes the git commit as `VERSION` (line 27) |
+| [`compose.yaml:44`](../../compose.yaml#L44) | `build:` for `web` |
 
 Result: `relay-api` image = **20 MB** (vs ~800 MB for the `golang` build image).
 
@@ -426,7 +426,7 @@ Result: `relay-api` image = **20 MB** (vs ~800 MB for the `golang` build image).
 
 *Came up in Part 0.2 — how to organise the backend's folders.*
 
-![package layout](diagrams/notes/04-package-layout.svg)
+![package layout](../diagrams/notes/04-package-layout.svg)
 
 ### Basics first
 
@@ -438,7 +438,7 @@ Result: `relay-api` image = **20 MB** (vs ~800 MB for the `golang` build image).
   private to their package. That's Go's only visibility rule — no `public`/`private` keywords.
 - **`internal/` is a fence:** only code inside this module can import packages under
   `internal/`. Nothing outside the project can depend on them.
-- **The module name** (`relay`, in [`backend/go.mod:1`](../backend/go.mod#L1)) is the
+- **The module name** (`relay`, in [`backend/go.mod:1`](../../backend/go.mod#L1)) is the
   prefix of every import path.
 
 ### The options
@@ -458,7 +458,7 @@ Two rules keep it clean:
 2. **Features talk to each other only through exported functions** — `chat` may call
    `users.GetByID(...)`, but never touches the `users` tables directly. That boundary is
    what lets us pull a feature out into its own service later (see
-   [monolith → microservices](concepts/monolith-to-microservices.md)).
+   [monolith → microservices](../concepts/monolith-to-microservices.md)).
 
 Inside a feature folder, the usual split is:
 - `handler.go` — HTTP: read the request, call the service, write the response
@@ -469,9 +469,9 @@ Inside a feature folder, the usual split is:
 
 | Code | What it is |
 |---|---|
-| [`backend/go.mod:1`](../backend/go.mod#L1) | Module name `relay` — the start of every import path |
-| [`backend/internal/health/checker.go:4`](../backend/internal/health/checker.go#L4) | `package health` — our first feature folder |
-| [`backend/cmd/api/main.go:20`](../backend/cmd/api/main.go#L20) | `import "relay/internal/health"` — how `main` uses it |
+| [`backend/go.mod:1`](../../backend/go.mod#L1) | Module name `relay` — the start of every import path |
+| [`backend/internal/health/checker.go:4`](../../backend/internal/health/checker.go#L4) | `package health` — our first feature folder |
+| [`backend/cmd/api/main.go:20`](../../backend/cmd/api/main.go#L20) | `import "relay/internal/health"` — how `main` uses it |
 
 `cmd/api/` holds the program's entry point (`main`). Each future binary (e.g. a WebSocket
 gateway in Phase 3) gets its own `cmd/<name>/` folder, sharing the same `internal/` packages.
@@ -553,8 +553,8 @@ of repetition per setting) and **Viper** (files + env + flags + live reload — 
 
 | Code | What it is |
 |---|---|
-| [`backend/cmd/api/main.go:37`](../backend/cmd/api/main.go#L37) | **Before 0.2:** settings read by hand with `getenv` / `os.Getenv` (lines 37–38) |
-| [`.env.example`](../.env.example) | The list of settings and example values (copied to `.env`) |
+| [`backend/cmd/api/main.go:37`](../../backend/cmd/api/main.go#L37) | **Before 0.2:** settings read by hand with `getenv` / `os.Getenv` (lines 37–38) |
+| [`.env.example`](../../.env.example) | The list of settings and example values (copied to `.env`) |
 
 *(Links to `internal/platform/config` get added when it's built.)*
 
@@ -584,7 +584,7 @@ of repetition per setting) and **Viper** (files + env + flags + live reload — 
 
 *Came up in Part 0.2 — how the backend writes logs.*
 
-![request id](diagrams/notes/06-request-id.svg)
+![request id](../diagrams/notes/06-request-id.svg)
 
 ### Basics first
 
@@ -629,7 +629,7 @@ slower; what 0.1 used) and **`zerolog`** (fastest, zero-allocation, its own chai
 
 | Code | What it is |
 |---|---|
-| [`backend/cmd/api/main.go`](../backend/cmd/api/main.go) | **Before 0.2:** `log/slog` default text logger — to be replaced by zap |
+| [`backend/cmd/api/main.go`](../../backend/cmd/api/main.go) | **Before 0.2:** `log/slog` default text logger — to be replaced by zap |
 
 *(Links to `internal/platform/logging` and the request-ID middleware get added when they're built.)*
 
@@ -664,7 +664,7 @@ slower; what 0.1 used) and **`zerolog`** (fastest, zero-allocation, its own chai
 
 *Came up in Part 0.2 — what handles routing and middleware.*
 
-![middleware](diagrams/notes/07-middleware.svg)
+![middleware](../diagrams/notes/07-middleware.svg)
 
 ### Basics first
 
@@ -711,8 +711,8 @@ the framework instead of Go's HTTP model).
 
 | Code | What it is |
 |---|---|
-| [`backend/internal/health/handler.go:33`](../backend/internal/health/handler.go#L33) | `Register` — routes with Go 1.22 patterns (`"GET /livez"`) |
-| [`backend/cmd/api/main.go`](../backend/cmd/api/main.go) | **Before 0.2:** the mux is passed straight to the server, no middleware yet |
+| [`backend/internal/health/handler.go:33`](../../backend/internal/health/handler.go#L33) | `Register` — routes with Go 1.22 patterns (`"GET /livez"`) |
+| [`backend/cmd/api/main.go`](../../backend/cmd/api/main.go) | **Before 0.2:** the mux is passed straight to the server, no middleware yet |
 
 *(Links to `internal/platform/httpserver` middleware get added when it's built.)*
 
@@ -743,7 +743,7 @@ the framework instead of Go's HTTP model).
 
 *Came up in Part 0.2 — how Go code reads and writes data.*
 
-![sqlc](diagrams/notes/08-sqlc.svg)
+![sqlc](../diagrams/notes/08-sqlc.svg)
 
 ### Basics first
 
@@ -813,7 +813,7 @@ You still write real SQL (the skill that matters), and the generated code is rea
 
 *Came up in Part 0.2 — how the database structure is created and changed.*
 
-![migrations](diagrams/notes/09-migrations.svg)
+![migrations](../diagrams/notes/09-migrations.svg)
 
 ### Basics first
 
@@ -904,13 +904,13 @@ Because the app no longer migrates on boot, we still don't need the `/startupz` 
 
 *Came up in Part 0.2 — how tests get a real database.*
 
-![testcontainers](diagrams/notes/10-testcontainers.svg)
+![testcontainers](../diagrams/notes/10-testcontainers.svg)
 
 ### Basics first
 
 - **Unit test** — checks one piece of code alone, with its dependencies replaced by
   **fakes** (a stand-in that behaves the way you tell it). Fast, no setup.
-  Example: [`checker_test.go`](../backend/internal/health/checker_test.go#L12) uses a
+  Example: [`checker_test.go`](../../backend/internal/health/checker_test.go#L12) uses a
   `fakePinger` instead of Postgres.
 - **Integration test** — checks our code **together with the real dependency** (a real
   Postgres). Slower, but catches what fakes can't: wrong SQL, missing columns, broken
@@ -947,7 +947,7 @@ leftovers between runs) and **reusing the dev DB** (destroys your dev data — a
 
 | Code | What it is |
 |---|---|
-| [`backend/internal/health/checker_test.go:12`](../backend/internal/health/checker_test.go#L12) | A **unit test fake** (`fakePinger`) — the 0.1 style |
+| [`backend/internal/health/checker_test.go:12`](../../backend/internal/health/checker_test.go#L12) | A **unit test fake** (`fakePinger`) — the 0.1 style |
 
 *(Links to the Testcontainers helper and the first integration test get added when they're built.)*
 
@@ -979,7 +979,7 @@ leftovers between runs) and **reusing the dev DB** (destroys your dev data — a
 
 *Came up in Part 0.2 — how the backend manages its connections to Postgres.*
 
-![connection pool](diagrams/notes/11-connection-pool.svg)
+![connection pool](../diagrams/notes/11-connection-pool.svg)
 
 ### Basics first
 
@@ -1023,7 +1023,7 @@ a few real ones — the answer to the 100-connection limit at scale; coming in P
 
 | Code | What it is |
 |---|---|
-| [`backend/cmd/api/main.go:49`](../backend/cmd/api/main.go#L49) | **Before 0.2:** `pgxpool.New` with default settings |
+| [`backend/cmd/api/main.go:49`](../../backend/cmd/api/main.go#L49) | **Before 0.2:** `pgxpool.New` with default settings |
 
 *(Links to the pool config and pool stats get added when they're built.)*
 
@@ -1058,7 +1058,7 @@ a few real ones — the answer to the 100-connection limit at scale; coming in P
 
 *Came up in Part 0.2 — how the backend stops without dropping users' requests.*
 
-![graceful shutdown](diagrams/notes/12-graceful-shutdown.svg)
+![graceful shutdown](../diagrams/notes/12-graceful-shutdown.svg)
 
 ### Basics first
 
@@ -1110,7 +1110,7 @@ on a laptop, but drops requests on every deploy behind a load balancer.
 
 | Code | What it is |
 |---|---|
-| [`backend/cmd/api/main.go:81`](../backend/cmd/api/main.go#L81) | **The 0.1 version:** catch the signal, `srv.Shutdown` with a 10 s limit (line 86) |
+| [`backend/cmd/api/main.go:81`](../../backend/cmd/api/main.go#L81) | **The 0.1 version:** catch the signal, `srv.Shutdown` with a 10 s limit (line 86) |
 
 *(Links to the full sequence in `internal/platform/httpserver` get added when it's built.)*
 

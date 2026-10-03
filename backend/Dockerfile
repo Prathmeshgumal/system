@@ -1,4 +1,4 @@
-# Multi-stage build — see knowledge-base/Notes.md, note 3.
+# Multi-stage build — see knowledge-base/notes/phase-0-notes.md, note 3.
 
 # ---- stage 1: build (big image with the Go compiler) ----
 FROM golang:1.27 AS build
