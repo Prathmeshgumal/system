@@ -69,6 +69,9 @@ Tests: 13 Go tests (`go test ./...` in `backend/`), 6 React tests (`pnpm test` i
   back to **5173** today. Always use the URL Vite prints.
 
 ### 3. Image sizes
+
+> ⏸ **Deferred** (2026-10-03) — do it whenever you like; step-by-step instructions are in the chat history and below.
+
 Change the final `FROM` in `backend/Dockerfile`, rebuild with
 `docker build -t relay-api:<name> backend`, and compare with `docker images relay-api`:
 - `gcr.io/distroless/static:nonroot` (current)
@@ -86,6 +89,9 @@ Revert the Dockerfile afterwards. Bonus: `docker history relay-api:latest`.
 | alpine | | | |
 
 ### 4. The localhost trap
+
+> ⏸ **Deferred** (2026-10-03).
+
 1. In `compose.yaml`, change the api's `DATABASE_URL` host from `postgres` to `localhost`.
 2. `make up-full`, open http://localhost:8000. What happens? Is the api container "healthy"? Why?
 3. Explain in one paragraph why `localhost` inside a container isn't your machine.

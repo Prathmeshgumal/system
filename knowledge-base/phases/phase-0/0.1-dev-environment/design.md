@@ -1,7 +1,7 @@
 # Part 0.1 — Dev Environment: Design
 
 - **Phase:** 0 — Foundations
-- **Status:** 🟨 built — experiments in [learnings.md](learnings.md) pending
+- **Status:** ✅ done — experiments 1–2 recorded, 3–4 deferred (see [learnings.md](learnings.md))
 - **Branch:** `part/0.1-dev-environment`
 - **Plan:** skipped for this part (small scope; built directly from this design, tests first)
 
