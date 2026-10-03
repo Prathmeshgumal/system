@@ -283,7 +283,39 @@ func (h *Handler) readyz(w http.ResponseWriter, r *http.Request) {
 
 ![multi-stage build](diagrams/notes/03-multi-stage-build.svg)
 
-### What it is
+### Docker basics first
+
+```
+  Dockerfile ──(docker build)──► Image ──(docker run / compose)──► Container
+  a recipe                       a frozen box                      the box, running
+```
+
+- **Container** — a program running in its own sealed box, with everything it needs
+  already installed inside. That's why you don't install packages yourself.
+- **Image** — the frozen snapshot a container starts from. Image : container =
+  class : object. One image can start many containers.
+- **Where images come from:** *downloaded* ready-made (`image: postgres:18` in
+  [`compose.yaml:7`](../compose.yaml#L7)) or *built* by us from a Dockerfile
+  (`build: ./backend` in [`compose.yaml:24`](../compose.yaml#L24)) — nobody publishes an image of *our* app.
+- **Dockerfile** — the recipe: start from X, copy code in, build it, run it.
+  **`docker build`** follows the recipe and produces an image (`make up-full` does this for you).
+- **Base image** — the `FROM` line: the existing image the recipe starts from, like
+  starting from a project template instead of an empty folder.
+- **Multi-stage** — two `FROM`s in one recipe. Stage 1 is the **kitchen** (big image
+  with compilers, ~800 MB) where the app is built; stage 2 is the **lunchbox** (tiny
+  image) that gets *only the finished program*. The kitchen is thrown away.
+
+```
+STAGE 1 "build" (kitchen)                STAGE 2 final (lunchbox)
+FROM golang:1.27  (~800 MB)              FROM distroless (~2 MB)
+copy code, go build → /api (15 MB) ────► COPY --from=build /api
+kitchen thrown away ✗                    ships: ~20 MB total
+```
+
+- **Dev vs full mode:** in `make dev` only Postgres runs in Docker (Go and React run
+  on your machine for instant reloads). In `make up-full` all three run in containers.
+
+### What it is (in more depth)
 
 **Image vs container:** an *image* is a read-only template (filesystem + startup command);
 a *container* is a running instance of it. One image → many containers.
