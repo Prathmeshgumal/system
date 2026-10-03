@@ -1,0 +1,20 @@
+# Middleware wraps the handler like layers of an onion.
+direction: right
+
+req: "Request\nGET /api/chats/7" {shape: oval}
+
+recover: "Recover\n(catch panics -> 500)" {
+  style.fill: "#fce4ec"
+  rid: "Request ID\n(create id, add to logger)" {
+    style.fill: "#e3f2fd"
+    log: "Log\n(time it, log status + ms)" {
+      style.fill: "#fff3e0"
+      router: "Router\nmatches GET /api/chats/{id}" {
+        style.fill: "#e8f5e9"
+        h: "Handler\ngetChat" {shape: hexagon}
+      }
+    }
+  }
+}
+
+req -> recover.rid.log.router.h: "goes in through every layer"

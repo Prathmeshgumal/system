@@ -15,6 +15,7 @@ Format per note: **What it is → Why it matters → What we chose → In our co
 | 4 | [Go packages & project layout](#4-go-packages--project-layout) | Part 0.2, decision B |
 | 5 | [Configuration via environment variables](#5-configuration-via-environment-variables) | Part 0.2, decision C |
 | 6 | [Structured logging & request IDs](#6-structured-logging--request-ids) | Part 0.2, decision D |
+| 7 | [HTTP routing & middleware](#7-http-routing--middleware) | Part 0.2, decision E |
 
 ---
 
@@ -650,3 +651,82 @@ slower; what 0.1 used) and **`zerolog`** (fastest, zero-allocation, its own chai
 - "How do you debug a production issue?" → structured logs + request/trace IDs to follow one request, then metrics for the big picture.
 - "How do you follow a request across services?" → propagate the request ID (later: OpenTelemetry trace IDs) in headers between services.
 - "What's the cost of logging?" → CPU/allocations in hot paths, storage volume, and leaking sensitive data.
+
+---
+
+## 7. HTTP routing & middleware
+
+*Came up in Part 0.2 — what handles routing and middleware.*
+
+![middleware](diagrams/notes/07-middleware.svg)
+
+### Basics first
+
+- **Handler** — a function that answers one kind of request. In Go, anything with a
+  `ServeHTTP(w http.ResponseWriter, r *http.Request)` method is an `http.Handler`;
+  `http.HandlerFunc` turns a plain function into one.
+- **Router** — looks at method + path (`GET /api/chats/7`) and picks the handler. Go's
+  built-in `http.ServeMux` does this; since Go 1.22 it understands methods and path
+  parameters: `mux.HandleFunc("GET /api/chats/{id}", getChat)`, then `r.PathValue("id")`.
+- **Middleware** — a function that takes a handler and returns a *new* handler that does
+  something before and/or after calling the original:
+
+```go
+func Logging(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        start := time.Now()              // before
+        next.ServeHTTP(w, r)             // the wrapped handler runs here
+        log("done", time.Since(start))   // after
+    })
+}
+```
+
+  Wrap several and they nest like an onion: the request passes inward through each
+  layer, the response passes back outward.
+
+### What we chose
+
+**Standard library `net/http` only** (Part 0.2, decision E) — `http.ServeMux` plus our own
+middleware, and a ~10-line helper to chain them. Reasons: no dependency, you write and
+see every middleware, and everything in Go speaks `http.Handler`, so nothing learned is wasted.
+
+Middleware we write in 0.2, outermost first:
+1. **Recover** — if a handler panics (crashes), return `500` and log it instead of killing the server
+2. **Request ID** — create the ID, set `X-Request-ID`, put a logger carrying it into the request context
+3. **Request log** — one line per request: method, path, status, duration
+
+(Part 1.1 adds **Auth** — "is this request logged in?")
+
+Options we didn't pick: **chi** (route groups + ready-made middleware, still standard
+`http.Handler`) and **gin/echo** (full frameworks with their own handler type — you'd learn
+the framework instead of Go's HTTP model).
+
+### In our code
+
+| Code | What it is |
+|---|---|
+| [`backend/internal/health/handler.go:33`](../backend/internal/health/handler.go#L33) | `Register` — routes with Go 1.22 patterns (`"GET /livez"`) |
+| [`backend/cmd/api/main.go`](../backend/cmd/api/main.go) | **Before 0.2:** the mux is passed straight to the server, no middleware yet |
+
+*(Links to `internal/platform/httpserver` middleware get added when it's built.)*
+
+### Gotchas
+
+- **Order matters.** Recover must be outermost (or a panic in another middleware escapes it);
+  request ID must come before logging (or the log line has no ID).
+- **To log the status code you must wrap the `ResponseWriter`** — Go doesn't let you read
+  back what status a handler wrote. A tiny struct that records `WriteHeader` calls does it.
+- **Don't do slow work in middleware** — it runs on *every* request.
+- **Panics in goroutines started by a handler aren't caught by Recover** — they crash the
+  whole program. Recover only protects the request's own goroutine.
+
+### Go deeper
+
+- Go blog: *Routing Enhancements for Go 1.22*
+- `net/http` docs: `Handler`, `HandlerFunc`, `ServeMux`
+- Read chi's middleware source on GitHub — short, and the same pattern we write
+
+### Interview angle
+
+- "What is middleware and where would you put auth / rate limiting / logging?" → wrapping handlers; cross-cutting concerns; order.
+- "What happens if a handler panics?" → recover middleware → 500 + log; without it, Go's server recovers per-connection but you lose the logging and response control.
