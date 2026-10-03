@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"relay/internal/notes/db"
+	"relay/internal/platform/database"
 )
 
 // Note is what the API returns. It's our own type rather than the generated
@@ -63,8 +63,7 @@ func toNote(r db.Note) Note {
 // wrap adds context to an error, and marks "couldn't reach the database"
 // errors with ErrUnavailable so callers can tell them apart from bugs.
 func wrap(op string, err error) error {
-	var connErr *pgconn.ConnectError
-	if errors.As(err, &connErr) || errors.Is(err, context.DeadlineExceeded) || pgconn.Timeout(err) {
+	if database.IsUnavailable(err) {
 		return fmt.Errorf("%s: %w: %w", op, ErrUnavailable, err)
 	}
 	return fmt.Errorf("%s: %w", op, err)
