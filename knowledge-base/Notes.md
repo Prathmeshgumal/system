@@ -169,6 +169,30 @@ questions, and they lead to two different actions:
 | **Readiness** `/readyz` | Can it serve requests *right now*? | **Stop sending traffic** to it (no restart) | ✅ Yes — DB, etc. |
 | *Startup* `/startupz` | Has it finished booting? | Wait; don't run the other probes yet | — |
 
+### Why readiness checks Postgres (and liveness doesn't)
+
+**Postgres is our database** — a separate program (in Docker) where all the app's data
+lives permanently: users, chats, messages. The Go backend holds no data itself; it asks
+Postgres for everything.
+
+```
+browser ──► Go backend ──► Postgres
+            (logic)        (data lives here)
+```
+
+- Almost every user request needs the database. If the backend can't reach Postgres,
+  it's *running* but *useless* → the honest answer to "can you take users?" is **no** →
+  `/readyz` checks Postgres.
+- Restarting the backend doesn't fix a broken database → `/livez` ignores Postgres.
+
+**How we check:** a **ping** (≈ `SELECT 1`, "are you there?") with a **1-second limit**.
+- Tiny on purpose: the watcher calls it every few seconds on every copy — a real query
+  would load the DB just to check on it.
+- The time limit matters: without it, a frozen Postgres makes the ping — and the health
+  check — wait forever. With it, we always get an answer fast, even if it's "down".
+- The measured time is the **latency** on the status page (`healthy (2 ms)`). If it
+  climbs under load, the DB is struggling — an early warning we'll graph in Phase 2.
+
 ### Why it matters
 
 **The classic outage:** a single `/health` that checks the database. Postgres has a
@@ -199,6 +223,7 @@ taking traffic (readiness fails), and come back on their own when the DB returns
 | [`backend/internal/health/handler.go:41`](../backend/internal/health/handler.go#L41) | `livez` — checks nothing |
 | [`backend/internal/health/handler.go:46`](../backend/internal/health/handler.go#L46) | `readyz` — 200 or 503 from the DB check |
 | [`backend/internal/health/handler.go:55`](../backend/internal/health/handler.go#L55) | `status` — details for the UI |
+| [`backend/internal/health/checker_test.go:47`](../backend/internal/health/checker_test.go#L47) | `TestCheckPostgres_PingHangs_GivesUpAtTimeout` — proves the 1-second limit works |
 | [`backend/internal/health/handler_test.go:41`](../backend/internal/health/handler_test.go#L41) | `TestLivez_DBDown_StillReturns200` — this note's main rule, as a test |
 | [`backend/cmd/api/main.go:93`](../backend/cmd/api/main.go#L93) | `healthcheck()` — the binary checks its own `/livez` (no curl in distroless)… |
 | [`backend/internal/health/probe.go:13`](../backend/internal/health/probe.go#L13) | …using `Probe` |
