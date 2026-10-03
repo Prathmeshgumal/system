@@ -545,7 +545,7 @@ of repetition per setting) and **Viper** (files + env + flags + live reload — 
 
 | Code | What it is |
 |---|---|
-| [`backend/cmd/api/main.go:40`](../backend/cmd/api/main.go#L40) | **Before 0.2:** settings read by hand with `os.Getenv` |
+| [`backend/cmd/api/main.go:37`](../backend/cmd/api/main.go#L37) | **Before 0.2:** settings read by hand with `getenv` / `os.Getenv` (lines 37–38) |
 | [`.env.example`](../.env.example) | The list of settings and example values (copied to `.env`) |
 
 *(Links to `internal/platform/config` get added when it's built.)*
