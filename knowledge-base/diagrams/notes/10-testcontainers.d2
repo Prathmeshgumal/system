@@ -1,0 +1,21 @@
+# Integration tests with Testcontainers: a fresh, throwaway Postgres per test run.
+direction: right
+
+gotest: "go test ./..." {shape: oval}
+
+run: "One test package" {
+  style.fill: "#e3f2fd"
+  start: "1. start postgres:18\ncontainer (random port)"
+  mig: "2. run goose migrations"
+  tests: "3. run tests\n(each cleans its own rows)"
+  stop: "4. delete container"
+  start -> mig -> tests -> stop
+}
+
+dev: "Your dev Postgres\n(make dev)" {
+  shape: cylinder
+  style.fill: "#e8f5e9"
+}
+
+gotest -> run.start
+run.tests -> dev: "never touched" {style.stroke-dash: 4; style.stroke: "#9e9e9e"}

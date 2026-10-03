@@ -17,7 +17,8 @@ Format per note: **What it is → Why it matters → What we chose → In our co
 | 6 | [Structured logging & request IDs](#6-structured-logging--request-ids) | Part 0.2, decision D |
 | 7 | [HTTP routing & middleware](#7-http-routing--middleware) | Part 0.2, decision E |
 | 8 | [Talking to the database: driver, ORM or sqlc](#8-talking-to-the-database-driver-orm-or-sqlc) | Part 0.2, decision F |
-| 9 | [Database migrations](#9-database-migrations) | Part 0.2, decision G |
+| 9 | [Database migrations](#9-database-migrations) | Part 0.2, decisions G–H |
+| 10 | [Unit vs integration tests (Testcontainers)](#10-unit-vs-integration-tests-testcontainers) | Part 0.2, decision I |
 
 ---
 
@@ -893,3 +894,78 @@ Because the app no longer migrates on boot, we still don't need the `/startupz` 
 
 - "How do you change the schema of a live database with zero downtime?" → backward-compatible migrations, expand/contract, concurrent index builds, never rename in one step.
 - "How do you keep environments in sync?" → versioned migrations in git, applied automatically on deploy.
+
+---
+
+## 10. Unit vs integration tests (Testcontainers)
+
+*Came up in Part 0.2 — how tests get a real database.*
+
+![testcontainers](diagrams/notes/10-testcontainers.svg)
+
+### Basics first
+
+- **Unit test** — checks one piece of code alone, with its dependencies replaced by
+  **fakes** (a stand-in that behaves the way you tell it). Fast, no setup.
+  Example: [`checker_test.go`](../backend/internal/health/checker_test.go#L12) uses a
+  `fakePinger` instead of Postgres.
+- **Integration test** — checks our code **together with the real dependency** (a real
+  Postgres). Slower, but catches what fakes can't: wrong SQL, missing columns, broken
+  migrations, wrong types.
+- **Test pyramid** — many fast unit tests, fewer integration tests, very few end-to-end
+  tests (like `make smoke`). Each layer catches different bugs.
+
+```
+        /\        end-to-end (make smoke)      few, slow, whole system
+       /  \
+      /----\      integration (real Postgres)  some
+     /      \
+    /--------\    unit (fakes)                 many, fast
+```
+
+- **Isolation** — tests must not depend on each other's leftovers, and must never touch
+  your dev data.
+
+### What we chose
+
+**Testcontainers** (`testcontainers-go`, Part 0.2, decision I): the test itself starts a
+fresh `postgres:18` container in Docker, runs the goose migrations, runs the tests, and
+deletes the container.
+
+- **One container per test package**, started once (in `TestMain`) — not one per test, to keep it fast.
+- **Each test cleans up its own rows** (or runs inside a transaction that's rolled back).
+- Containers get a **random free port**, so they never clash with your dev Postgres on 5432.
+- `go test ./...` just works — no "start the test DB first" step, same in CI later.
+
+Options we didn't pick: a **separate test DB in Compose** (fast, but must be started first;
+leftovers between runs) and **reusing the dev DB** (destroys your dev data — avoid).
+
+### In our code
+
+| Code | What it is |
+|---|---|
+| [`backend/internal/health/checker_test.go:12`](../backend/internal/health/checker_test.go#L12) | A **unit test fake** (`fakePinger`) — the 0.1 style |
+
+*(Links to the Testcontainers helper and the first integration test get added when they're built.)*
+
+### Gotchas
+
+- **Docker must be running** for integration tests. Unit tests still run without it if we
+  keep them separate (we'll use a build tag or `-short` to skip integration tests on demand).
+- **First run downloads the image** — slow once, fast after.
+- **Don't share state between tests** through the DB — each test creates the rows it needs.
+- **Parallel tests + one database** — either give each test its own data (unique emails etc.)
+  or don't run DB tests in parallel.
+- If a test run is killed, containers are still cleaned up by Testcontainers' helper
+  container ("Ryuk") — you may notice it in `docker ps`.
+
+### Go deeper
+
+- testcontainers-go docs: *Postgres module*
+- Martin Fowler: *The Practical Test Pyramid*
+- Go docs: `testing.M` / `TestMain`, `t.Cleanup`
+
+### Interview angle
+
+- "Unit vs integration tests — when do you use which?" → logic in units with fakes; anything crossing a boundary (DB, network) needs integration tests.
+- "How do you keep tests isolated and deterministic?" → fresh DB per run, each test owns its data, no order dependence.

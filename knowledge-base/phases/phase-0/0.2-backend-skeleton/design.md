@@ -23,6 +23,7 @@ shutdown sequence.
 | F | DB access | **sqlc** — SQL in `.sql` files, `sqlc generate` (via `make sqlc`) produces typed Go on top of pgx; generated code is committed | Write real SQL; mistakes caught at generate time; no runtime magic — [Note 8](../../../Notes.md#8-talking-to-the-database-driver-orm-or-sqlc) |
 | G | Migration tool | **goose** — one `.sql` file per migration with `-- +goose Up` / `-- +goose Down`; also used as a Go library; sqlc reads the same files | Up/down side by side; CLI + library; sqlc support — [Note 9](../../../Notes.md#9-database-migrations) |
 | H | When migrations run | **Separate step before the app**: `api migrate` subcommand (migrations embedded in the binary); `make migrate`, run automatically by `make dev`; one-off `migrate` service in Compose that `api` waits for (`service_completed_successfully`) | One run per deploy, no race between copies, standard production pattern — [Note 9](../../../Notes.md#when-migrations-run-decision-h) |
+| I | Integration-test DB | **Testcontainers** (`testcontainers-go`): fresh `postgres:18` per test package, goose migrations applied, container removed afterwards; each test owns its rows | Fully isolated, never touches dev data, `go test` just works — [Note 10](../../../Notes.md#10-unit-vs-integration-tests-testcontainers) |
 
 ## Sections
 
