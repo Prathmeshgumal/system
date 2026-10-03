@@ -14,6 +14,7 @@ Format per note: **What it is → Why it matters → What we chose → In our co
 | 3 | [Multi-stage Docker builds & base images](#3-multi-stage-docker-builds--base-images) | Part 0.1, decision E |
 | 4 | [Go packages & project layout](#4-go-packages--project-layout) | Part 0.2, decision B |
 | 5 | [Configuration via environment variables](#5-configuration-via-environment-variables) | Part 0.2, decision C |
+| 6 | [Structured logging & request IDs](#6-structured-logging--request-ids) | Part 0.2, decision D |
 
 ---
 
@@ -569,3 +570,83 @@ of repetition per setting) and **Viper** (files + env + flags + live reload — 
 
 - "How do you manage config across environments?" → env vars, validated at startup, secrets from a secret manager, nothing in git.
 - "How do you rotate a secret?" → change it in the secret store and restart/redeploy; that's why config must be outside the code.
+
+---
+
+## 6. Structured logging & request IDs
+
+*Came up in Part 0.2 — how the backend writes logs.*
+
+![request id](diagrams/notes/06-request-id.svg)
+
+### Basics first
+
+- **Logs** = lines a program writes about what it's doing. In production they're often
+  the *only* record of what happened — you can't attach a debugger to a live server.
+- **Where they go:** the program prints to **stdout**; the platform collects it
+  (`docker compose logs` today, Loki in Phase 2). Apps don't manage log files themselves.
+- **Levels:** `DEBUG` < `INFO` < `WARN` < `ERROR`. A setting like `LOG_LEVEL=info` hides
+  everything below it — so production isn't flooded with debug detail.
+- **Structured vs unstructured:**
+
+```
+unstructured:  user 42 failed login from 1.2.3.4 after 3 tries
+structured:    {"level":"warn","msg":"login failed","user_id":42,"ip":"1.2.3.4","attempts":3}
+```
+
+  Structured logs are **data**: a tool can filter "every failed login for user 42"
+  instantly. Free text means grepping and hoping the wording never changed.
+- **Request ID:** a unique ID given to each incoming request and attached to **every log
+  line** written while handling it. With 1,000 requests interleaved, filter by one ID and
+  you see one request's whole story. It's also returned to the client in the
+  `X-Request-ID` header, so a user can report "it failed, request ID 7f3a…".
+- **Middleware:** code that wraps *every* request before/after the real handler — the
+  natural place to assign the request ID and log "method, path, status, duration".
+
+### What we chose
+
+**`zap`** (by Uber) — Part 0.2, decision D.
+
+- **`zap.Logger`** (typed fields, fastest) — the one we use in app code:
+  `logger.Warn("login failed", zap.Int("user_id", 42), zap.String("ip", ip))`
+- `zap.SugaredLogger` — looser `"key", value` style, slightly slower; not used.
+- **Dev:** human-readable console output, colours, `DEBUG` on.
+  **Production:** JSON, `INFO` and above. Switched by config (`LOG_FORMAT`, `LOG_LEVEL`).
+- `logger.With(zap.String("request_id", id))` creates a child logger that adds the ID to
+  every line — the middleware puts it on the request's `context`, handlers pull it out.
+
+Options we didn't pick: **`log/slog`** (Go's standard library — no dependency, slightly
+slower; what 0.1 used) and **`zerolog`** (fastest, zero-allocation, its own chained style).
+
+### In our code
+
+| Code | What it is |
+|---|---|
+| [`backend/cmd/api/main.go`](../backend/cmd/api/main.go) | **Before 0.2:** `log/slog` default text logger — to be replaced by zap |
+
+*(Links to `internal/platform/logging` and the request-ID middleware get added when they're built.)*
+
+### Gotchas
+
+- **Never log secrets or personal data** — passwords, tokens, full card numbers. Logs are
+  copied to many systems and kept for a long time.
+- **Log at boundaries, not everywhere** — one line per request plus real events/errors.
+  Logging inside tight loops costs CPU and money (log storage is billed by volume).
+- **Log an error once**, where it's handled — not at every layer it passes through,
+  or one failure shows up as five log lines.
+- **Call `logger.Sync()` before exit** — zap buffers output; without it the last lines
+  (often the most important ones, right before a crash) can be lost.
+- High-cardinality fields (user IDs, request IDs) are fine in logs — but *not* as metric
+  labels later (Phase 2). Different tools, different rules.
+
+### Go deeper
+
+- `go.uber.org/zap` README and FAQ — why it's fast (avoiding allocations and reflection)
+- Go blog: *Structured Logging with slog* — the standard library's take, good contrast
+- Google SRE book: *Monitoring Distributed Systems* — logs vs metrics vs traces
+
+### Interview angle
+
+- "How do you debug a production issue?" → structured logs + request/trace IDs to follow one request, then metrics for the big picture.
+- "How do you follow a request across services?" → propagate the request ID (later: OpenTelemetry trace IDs) in headers between services.
+- "What's the cost of logging?" → CPU/allocations in hot paths, storage volume, and leaking sensitive data.

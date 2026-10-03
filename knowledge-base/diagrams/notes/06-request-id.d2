@@ -1,0 +1,25 @@
+# One request, one ID, on every log line.
+direction: right
+
+browser: Browser {shape: person}
+
+api: "Go backend" {
+  mw: "Middleware\n1. create request_id = 7f3a\n2. add it to the logger\n3. time the request"
+  h: "Handler\nlogs with the same logger"
+  mw -> h: "request + logger(request_id=7f3a)"
+}
+
+logs: "stdout logs" {
+  shape: page
+  l1: |md
+    `{"msg":"query users","request_id":"7f3a"}`
+  |
+  l2: |md
+    `{"msg":"request done","request_id":"7f3a","status":200,"ms":12}`
+  |
+}
+
+browser -> api.mw: "GET /api/..."
+api.h -> logs.l1
+api.mw -> logs.l2: "after handler returns"
+api.mw -> browser: "response\nX-Request-ID: 7f3a"
