@@ -17,6 +17,7 @@ Format per note: **What it is → Why it matters → What we chose → In our co
 | 6 | [Structured logging & request IDs](#6-structured-logging--request-ids) | Part 0.2, decision D |
 | 7 | [HTTP routing & middleware](#7-http-routing--middleware) | Part 0.2, decision E |
 | 8 | [Talking to the database: driver, ORM or sqlc](#8-talking-to-the-database-driver-orm-or-sqlc) | Part 0.2, decision F |
+| 9 | [Database migrations](#9-database-migrations) | Part 0.2, decision G |
 
 ---
 
@@ -801,3 +802,75 @@ You still write real SQL (the skill that matters), and the generated code is rea
 
 - "ORM or raw SQL?" → trade-offs: productivity vs control, N+1, hidden queries; codegen (sqlc) as a middle ground.
 - "How do you prevent SQL injection?" → parameterised queries / placeholders, never string concatenation.
+
+---
+
+## 9. Database migrations
+
+*Came up in Part 0.2 — how the database structure is created and changed.*
+
+![migrations](diagrams/notes/09-migrations.svg)
+
+### Basics first
+
+- **Schema** — the *structure* of the database: which tables exist, their columns and
+  types, indexes, constraints. The **data** lives inside that structure.
+- The schema **changes over time** (new tables, new columns), and every copy of the
+  database — laptop, Docker, AWS, a teammate's machine — must go through **the same
+  changes in the same order**.
+- **Migration** — one numbered SQL file describing one change. **Up** applies it,
+  **Down** undoes it.
+- **Version table** — the tool keeps a small table in the database (goose:
+  `goose_db_version`) recording which migrations ran. `up` applies only the missing ones.
+  Think **git commits for the database structure**.
+
+### What we chose
+
+**goose** (Part 0.2, decision G) — one file per migration, up and down together:
+
+```sql
+-- +goose Up
+CREATE TABLE users (
+    id    bigserial PRIMARY KEY,
+    email text NOT NULL UNIQUE
+);
+
+-- +goose Down
+DROP TABLE users;
+```
+
+- Usable as a CLI *and* a Go library — migration files can be embedded in our binary.
+- sqlc reads the same files to learn the tables (Note 8).
+
+Options we didn't pick: **golang-migrate** (most popular; separate `.up.sql`/`.down.sql`
+files; "dirty" state after a failed migration needs manual cleanup) and **Atlas**
+(declarative — describe the end state, it computes the SQL; powerful but hides the very
+SQL you're learning).
+
+### In our code
+
+*(Links to the migrations folder and the migrate command get added when they're built.)*
+
+### Gotchas
+
+- **Never edit a migration that has already run** anywhere that matters — the version table
+  says it's done, so your edit is silently ignored there. Write a *new* migration instead.
+- **One change per migration**, small and focused — easier to review and to roll back.
+- **Down migrations that drop things destroy data.** In production, "rolling back" usually
+  means writing a new forward migration, not running down.
+- **Big tables + some changes = locks.** Adding an index on a large table blocks writes
+  unless you use `CREATE INDEX CONCURRENTLY`. Irrelevant now, very relevant at scale.
+- **Code and schema must be compatible during deploys** — old code may still be running
+  when the new schema arrives. The safe pattern is **expand → migrate code → contract**
+  (add the new column, deploy code that uses it, remove the old one later).
+
+### Go deeper
+
+- goose README: annotations, embedding migrations (`embed.FS`), Go migrations
+- Martin Fowler: *Evolutionary Database Design*
+- Search "expand and contract pattern" / "parallel change"
+
+### Interview angle
+
+- "How do you change the schema of a live database with zero downtime?" → backward-compatible migrations, expand/contract, concurrent index builds, never rename in one step.
+- "How do you keep environments in sync?" → versioned migrations in git, applied automatically on deploy.

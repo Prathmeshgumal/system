@@ -1,0 +1,22 @@
+# Migrations are git commits for the database structure.
+direction: right
+
+files: "migrations/ (in git)" {
+  style.fill: "#e3f2fd"
+  m1: "00001_create_users.sql" {shape: page}
+  m2: "00002_create_chats.sql" {shape: page}
+  m3: "00003_add_avatar.sql" {shape: page}
+}
+
+goose: "goose up\n'apply what's missing,\nin order'" {shape: hexagon}
+
+db: "Postgres" {
+  style.fill: "#e8f5e9"
+  version: "goose_db_version\n1 ✓  2 ✓  (3 missing)" {shape: sql_table}
+  tables: "users, chats" {shape: cylinder}
+}
+
+files -> goose
+goose -> db.version: "1. what's applied?"
+goose -> db.tables: "2. run 00003 only"
+goose -> db.version: "3. record 3 ✓"
