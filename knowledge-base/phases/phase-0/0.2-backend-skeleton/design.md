@@ -1,7 +1,7 @@
 # Part 0.2 — Backend Skeleton: Design
 
 - **Phase:** 0 — Foundations
-- **Status:** 🟦 in design (brainstorming) — decisions A–M made; Sections 1–3 approved, Section 4 in review
+- **Status:** 🟦 in design — all decisions and sections approved; spec awaiting your review
 - **Branch:** `part/0.2-backend-skeleton`
 
 ## Goal
@@ -111,6 +111,11 @@ POST /api/notes {"body":"hello"}
 - Errors are logged once, where they become a response; clients get code + request ID only.
 - `GET /api/notes` → `200 {"notes":[…]}`, newest 20 first. Unknown routes → `404 not_found`.
 
+### Probes during shutdown
+
+During the drain (decision K), `/readyz` → `503 {"status":"shutting_down"}` (distinct from
+`not_ready`, which means the DB is unreachable); `/livez` stays `200`.
+
 ### Status page
 
 `/api/status` adds `"db_pool": {"in_use","idle","total","max","waited"}`; React shows a
@@ -170,4 +175,45 @@ postgres ──healthy──► migrate (`api migrate`, exits 0) ──completed
 - Part 1.1 starts with a **new** migration `00002_drop_notes.sql` and deletes `internal/notes/`;
   `00001` is never edited (Note 9).
 
-## Section 4 — Testing & "done when" ⏳ in review
+## Section 4 — Testing & "done when" ✅ approved
+
+### Automated tests (written first — TDD)
+
+`make test-unit` = unit tests only (fast, no Docker). `make test` = everything incl. integration (needs Docker).
+
+| Package | Kind | Checks |
+|---|---|---|
+| `platform/config` | unit | defaults apply; missing `DATABASE_URL` → clear error; bad duration → error; `DB_MIN_CONNS > DB_MAX_CONNS` → error; unknown `LOG_LEVEL`/`LOG_FORMAT` → error |
+| `platform/logging` | unit | `info` level hides debug; `json` format emits valid JSON |
+| `platform/httpserver` | unit | recover: panic → `500 internal` (error shape), server survives · request ID: header set, unique, present in log lines · request log: method, path, real status, duration · error helper shape (Note 13) · unknown route → `404 not_found` |
+| `platform/httpserver` (shutdown) | unit | during drain `/readyz` = 503; a slow in-flight request completes; new connections refused after drain |
+| `platform/database` | integration | migrations apply on a fresh DB; running twice is a no-op; pool stats reported |
+| `notes` service | unit | body length 0 ✗ · 1 ✓ · 1000 ✓ · 1001 ✗ · whitespace-only ✗ |
+| `notes` handler | unit | bad JSON → `400 invalid_json`; invalid body → `400 validation_failed` + `fields.body`; success → `201` + note |
+| `notes` store | integration | create → list newest first; limit respected; DB `CHECK` rejects 1001 chars without the service |
+| `health` | unit | `/api/status` includes `db_pool` |
+| React | unit | status page shows the **Pool** row |
+
+**`make smoke`** additionally checks: `migrate` completed and `api` healthy; `POST` then
+`GET /api/notes` through Caddy; `X-Request-ID` header present; unknown route → `404` in our error shape.
+
+**Request IDs from clients are ignored** — we always generate our own, so nobody can inject
+fake IDs into our logs. Trusting incoming IDs comes later, between our own services.
+
+### Hands-on experiments (results → `learnings.md`)
+
+1. **Break the config** — remove `DATABASE_URL`; then `DB_MIN_CONNS=20`. Is the error clear?
+2. **Follow one request** — `curl -i -X POST …/api/notes`, copy `X-Request-ID`, find its log lines; switch `LOG_FORMAT=json` and compare.
+3. **Migration lifecycle** — `make migrate-new name=add_title`, add a column, `make migrate`, `make psql` → `\d notes` and `SELECT * FROM goose_db_version;`, `make migrate-down`, delete the file.
+4. **sqlc catches a mistake** — typo a column in `queries.sql`, `make sqlc`, read the error, undo.
+5. **Watch the pool** — `DB_MAX_CONNS=1`, fire 50 concurrent requests, watch `waited` climb on the status page.
+6. **Graceful shutdown** — full mode, `docker compose stop api`, read the log sequence: readyz 503 → drain → shutdown → pool closed → exit.
+
+### Done when
+
+- [ ] `make test-unit`, `make test`, `make smoke` pass
+- [ ] `make dev` runs migrations automatically; status page shows the **Pool** row
+- [ ] `POST` / `GET /api/notes` work in dev and full mode, with request IDs in the logs
+- [ ] Experiments done (or explicitly deferred) in `learnings.md`
+- [ ] "In our code" placeholders for Notes 5–13 in `notes/phase-0-notes.md` replaced with real line links
+- [ ] Tracker shows 0.2 ✅

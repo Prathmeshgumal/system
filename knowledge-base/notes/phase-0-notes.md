@@ -1177,7 +1177,7 @@ on a laptop, but drops requests on every deploy behind a load balancer.
 
 | Field | For | Rule |
 |---|---|---|
-| `code` | Code (frontend branches on it) | Stable, snake_case, never reworded: `validation_failed`, `not_found`, `unauthorized`, `forbidden`, `conflict`, `rate_limited`, `internal` |
+| `code` | Code (frontend branches on it) | Stable, snake_case, never reworded: `invalid_json`, `validation_failed`, `not_found`, `unauthorized`, `forbidden`, `conflict`, `rate_limited`, `unavailable`, `internal` |
 | `message` | Humans | Can be reworded any time |
 | `fields` | Forms | Optional; only for `validation_failed` |
 | `request_id` | Bug reports | Always present; matches the logs (Note 6) |
