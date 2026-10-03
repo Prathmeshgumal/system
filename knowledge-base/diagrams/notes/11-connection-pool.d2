@@ -1,0 +1,24 @@
+# A pool keeps connections open; requests borrow and return them.
+direction: right
+
+reqs: "Incoming requests" {
+  a: "request A"
+  b: "request B"
+  c: "request C\n(waits)" {style.stroke-dash: 4}
+}
+
+pool: "pgxpool (max 10, min 2)" {
+  style.fill: "#e3f2fd"
+  c1: "conn 1 - in use"
+  c2: "conn 2 - in use"
+  c3: "conn 3 - idle"
+}
+
+pg: "Postgres\nmax_connections = 100\n(shared by ALL backend copies)" {shape: cylinder}
+
+reqs.a -> pool.c1: "borrow"
+reqs.b -> pool.c2: "borrow"
+reqs.c -> pool: "next free one" {style.stroke-dash: 4}
+pool.c1 -> pg
+pool.c2 -> pg
+pool.c3 -> pg

@@ -19,6 +19,7 @@ Format per note: **What it is → Why it matters → What we chose → In our co
 | 8 | [Talking to the database: driver, ORM or sqlc](#8-talking-to-the-database-driver-orm-or-sqlc) | Part 0.2, decision F |
 | 9 | [Database migrations](#9-database-migrations) | Part 0.2, decisions G–H |
 | 10 | [Unit vs integration tests (Testcontainers)](#10-unit-vs-integration-tests-testcontainers) | Part 0.2, decision I |
+| 11 | [Database connection pooling](#11-database-connection-pooling) | Part 0.2, decision J |
 
 ---
 
@@ -969,3 +970,82 @@ leftovers between runs) and **reusing the dev DB** (destroys your dev data — a
 
 - "Unit vs integration tests — when do you use which?" → logic in units with fakes; anything crossing a boundary (DB, network) needs integration tests.
 - "How do you keep tests isolated and deterministic?" → fresh DB per run, each test owns its data, no order dependence.
+
+---
+
+## 11. Database connection pooling
+
+*Came up in Part 0.2 — how the backend manages its connections to Postgres.*
+
+![connection pool](diagrams/notes/11-connection-pool.svg)
+
+### Basics first
+
+- **Connection** — an open line between the backend and Postgres. **Opening one is slow**
+  (~5–50 ms: TCP handshake, TLS, login, session setup) compared to a simple query (< 1 ms).
+- **Pool** — keeps connections **open and ready**. A request **borrows** one, runs its
+  queries, **returns** it. No handshake per request.
+- **Postgres has a hard limit** — `max_connections`, **100** by default. Each connection
+  costs Postgres memory (~5–10 MB, one process per connection). **Every backend copy's
+  pool counts against the same limit**:
+
+```
+3 copies × max 50 = 150  → over the limit, new connections refused
+3 copies × max 20 =  60  → fine, with room left for migrations and psql
+```
+
+- **Pool full** → new requests **wait** for a returned connection. Short waits under load
+  are normal; long waits mean the pool is too small *or* queries hold connections too long.
+
+### The settings
+
+| Setting | Meaning | Our start value |
+|---|---|---|
+| **Max conns** | Most connections this copy may open | 10 |
+| **Min conns** | Kept open even when idle (fast first requests after a quiet spell) | 2 |
+| **Max conn lifetime** | Replace connections after this long (spreads load after a DB failover, avoids stale ones) | 1 h |
+| **Max conn idle time** | Close connections unused this long | 30 min |
+
+### What we chose
+
+**Explicit, configurable settings + visible pool stats** (Part 0.2, decision J):
+- The four settings are config values (Note 5), with the start values above.
+- `/api/status` shows **live pool stats**: in use, idle, total, and how many requests
+  had to wait — so in Part 1.4's load test you can *watch* the pool fill up.
+
+Options we didn't pick: **pgx defaults** (max = `max(4, CPU cores)`, invisible) and
+**PgBouncer** (a pool in front of Postgres that lets thousands of app connections share
+a few real ones — the answer to the 100-connection limit at scale; coming in Phase 3).
+
+### In our code
+
+| Code | What it is |
+|---|---|
+| [`backend/cmd/api/main.go:51`](../backend/cmd/api/main.go#L51) | **Before 0.2:** `pgxpool.New` with default settings |
+
+*(Links to the pool config and pool stats get added when they're built.)*
+
+### Gotchas
+
+- **Bigger isn't faster.** Postgres does real work per connection; past a point, more
+  connections mean more contention and *slower* queries. A common starting rule of thumb
+  for the *database side* is around `(CPU cores × 2) + disks`, shared across all clients.
+- **Hold connections briefly.** Never keep one borrowed while waiting on something slow
+  (an HTTP call, a user) — it starves other requests.
+- **Leaks:** forgetting to close `rows` (or a transaction) keeps the connection borrowed
+  forever; the pool slowly empties. pgx + sqlc mostly prevent this, but watch "in use" in the stats.
+- **Lazy connect:** `pgxpool.New` doesn't connect until first use (we relied on that in 0.1
+  so the API starts without a DB). With `MinConns > 0`, it starts opening connections in
+  the background — still non-blocking.
+
+### Go deeper
+
+- pgx docs: `pgxpool.Config` (every setting)
+- HikariCP wiki: *About Pool Sizing* — the classic article on why small pools win
+- Postgres docs: `max_connections`
+- PgBouncer docs (for Phase 3)
+
+### Interview angle
+
+- "Why use a connection pool?" → handshake cost; bounded resources; Postgres connection limit.
+- "Your DB says 'too many connections' after you scaled out — why and how do you fix it?" → pools × copies exceed `max_connections`; shrink pools, add PgBouncer, or scale the DB.
