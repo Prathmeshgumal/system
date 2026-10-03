@@ -79,3 +79,11 @@ func NotFound() http.Handler {
 		WriteError(w, r, http.StatusNotFound, CodeNotFound, "Not found.", nil)
 	})
 }
+
+// NewMux returns a router whose unknown routes answer with our JSON 404.
+// "/" is the catch-all pattern: it matches anything no other route does.
+func NewMux() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.Handle("/", NotFound())
+	return mux
+}

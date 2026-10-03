@@ -94,3 +94,19 @@ func TestNotFound_UsesTheSharedShape(t *testing.T) {
 		t.Fatalf("code = %q, want %q", got.Code, CodeNotFound)
 	}
 }
+
+func TestNewMux_UnknownRoute_GetsOurJSON404(t *testing.T) {
+	mux := NewMux()
+	mux.HandleFunc("GET /known", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+
+	if rec := serve(mux, http.MethodGet, "/known"); rec.Code != http.StatusNoContent {
+		t.Fatalf("known route code = %d, want 204", rec.Code)
+	}
+	rec := serve(mux, http.MethodGet, "/api/does-not-exist")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown route code = %d, want 404", rec.Code)
+	}
+	if got := decodeError(t, rec); got.Code != CodeNotFound {
+		t.Fatalf("error code = %q, want %q", got.Code, CodeNotFound)
+	}
+}
