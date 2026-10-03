@@ -12,6 +12,7 @@ Format per note: **What it is → Why it matters → What we chose → In our co
 | 1 | [Same-origin policy, CORS & reverse proxies](#1-same-origin-policy-cors--reverse-proxies) | Part 0.1, decision C |
 | 2 | [Health checks: liveness vs readiness](#2-health-checks-liveness-vs-readiness) | Part 0.1, decision D |
 | 3 | [Multi-stage Docker builds & base images](#3-multi-stage-docker-builds--base-images) | Part 0.1, decision E |
+| 4 | [Go packages & project layout](#4-go-packages--project-layout) | Part 0.2, decision B |
 
 ---
 
@@ -409,3 +410,78 @@ Result: `relay-api` image = **20 MB** (vs ~800 MB for the `golang` build image).
 - "How do you keep container images small and secure?" → multi-stage, minimal base, non-root, `.dockerignore`, scanning.
 - "Why are your deploys slow?" → huge images, bad layer ordering, no build cache.
 - "Container vs VM?" → containers share the host kernel (namespaces + cgroups); VMs have their own kernel.
+
+---
+
+## 4. Go packages & project layout
+
+*Came up in Part 0.2 — how to organise the backend's folders.*
+
+![package layout](diagrams/notes/04-package-layout.svg)
+
+### Basics first
+
+- **A folder is a package.** Every `.go` file in a folder starts with the same
+  `package <name>` line and they share everything. Other code uses it with
+  `import "relay/internal/health"` and calls `health.NewChecker(...)`.
+- **Exported vs unexported:** names starting with a **capital letter** (`NewChecker`,
+  `StatusOK`) can be used from other packages; lowercase ones (`livez`, `roundMS`) are
+  private to their package. That's Go's only visibility rule — no `public`/`private` keywords.
+- **`internal/` is a fence:** only code inside this module can import packages under
+  `internal/`. Nothing outside the project can depend on them.
+- **The module name** (`relay`, in [`backend/go.mod:1`](../backend/go.mod#L1)) is the
+  prefix of every import path.
+
+### The options
+
+| Layout | Looks like | Good | Bad |
+|---|---|---|---|
+| **By layer** | `handlers/`, `services/`, `repository/`, `models/` | Familiar from MVC frameworks | One feature spread over 4 folders; hard to extract later |
+| **By feature + platform** ✅ | `users/`, `chat/`, `health/` + `platform/{config,logging,database,httpserver}` | A feature lives in one folder; matches the modular monolith | Must decide what's "platform" |
+| **Flat** | everything in one package | Simplest start | Turns into a tangle; no boundaries |
+
+### What we chose
+
+**By feature, plus `internal/platform/`** (Part 0.2, decision B).
+
+Two rules keep it clean:
+1. **Platform knows nothing about features.** `platform/database` never mentions users or chats.
+2. **Features talk to each other only through exported functions** — `chat` may call
+   `users.GetByID(...)`, but never touches the `users` tables directly. That boundary is
+   what lets us pull a feature out into its own service later (see
+   [monolith → microservices](concepts/monolith-to-microservices.md)).
+
+Inside a feature folder, the usual split is:
+- `handler.go` — HTTP: read the request, call the service, write the response
+- `service.go` — business rules ("can this user post in this chat?")
+- `store.go` — database queries
+
+### In our code
+
+| Code | What it is |
+|---|---|
+| [`backend/go.mod:1`](../backend/go.mod#L1) | Module name `relay` — the start of every import path |
+| [`backend/internal/health/checker.go:4`](../backend/internal/health/checker.go#L4) | `package health` — our first feature folder |
+| [`backend/cmd/api/main.go:20`](../backend/cmd/api/main.go#L20) | `import "relay/internal/health"` — how `main` uses it |
+
+`cmd/api/` holds the program's entry point (`main`). Each future binary (e.g. a WebSocket
+gateway in Phase 3) gets its own `cmd/<name>/` folder, sharing the same `internal/` packages.
+
+### Gotchas
+
+- **Import cycles are a compile error in Go.** If `users` imports `chat` and `chat`
+  imports `users`, it won't build. That's a feature: it forces clear dependency directions.
+- **Don't create `utils/` or `common/` dumping grounds** — they become the "flat" layout
+  in disguise. Name packages for what they provide (`config`, `logging`).
+- **Package names are short, lowercase, singular, no underscores:** `user` or `users`, not `userService`.
+
+### Go deeper
+
+- Go blog: *Package names* (go.dev/blog/package-names)
+- Go docs: *Organizing a Go module* (go.dev/doc/modules/layout)
+- Search "package by feature vs package by layer" — the debate is language-independent
+
+### Interview angle
+
+- "How would you structure a growing backend?" → by feature/domain, clear boundaries, shared platform layer.
+- "How would you split a monolith?" → if it's already modular, each module becomes a service; data ownership per module is the hard part.

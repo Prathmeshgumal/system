@@ -16,6 +16,7 @@ shutdown sequence.
 | # | Decision | Chosen | Why |
 |---|---|---|---|
 | A | Scope of 0.2 | **All 7 pieces now**, practised on a small demo table (removed or replaced later) | Part 1.1 starts with all tooling ready; you learn the tools before the feature |
+| B | Folder layout | **By feature + `internal/platform/`** (config, logging, database, httpserver) | A feature lives in one folder; matches the modular monolith; each feature can become a service later — [Note 4](../../../Notes.md#4-go-packages--project-layout) |
 
 ## Sections
 

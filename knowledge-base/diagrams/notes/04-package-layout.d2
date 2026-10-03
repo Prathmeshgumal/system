@@ -1,0 +1,24 @@
+# Package by layer vs package by feature (what we chose).
+direction: right
+
+layer: "By layer (not chosen)" {
+  style.fill: "#fff3e0"
+  h: "handlers/\nusers.go chats.go"
+  s: "services/\nusers.go chats.go"
+  r: "repository/\nusers.go chats.go"
+  h -> s -> r
+  note: "one feature is spread\nacross every folder" {shape: text}
+}
+
+feature: "By feature + platform (chosen)" {
+  style.fill: "#e8f5e9"
+  users: "users/\nhandler service store"
+  chat: "chat/\nhandler service store"
+  health: "health/\nhandler checker"
+  platform: "platform/\nconfig logging database httpserver" {style.fill: "#e3f2fd"}
+  users -> platform
+  chat -> platform
+  health -> platform
+  chat -> users: "only via its\nexported functions" {style.stroke-dash: 4}
+  later: "each feature folder =\na future microservice" {shape: text}
+}
