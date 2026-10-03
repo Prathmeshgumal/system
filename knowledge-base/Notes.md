@@ -21,6 +21,7 @@ Format per note: **What it is → Why it matters → What we chose → In our co
 | 10 | [Unit vs integration tests (Testcontainers)](#10-unit-vs-integration-tests-testcontainers) | Part 0.2, decision I |
 | 11 | [Database connection pooling](#11-database-connection-pooling) | Part 0.2, decision J |
 | 12 | [Graceful shutdown & connection draining](#12-graceful-shutdown--connection-draining) | Part 0.2, decision K |
+| 13 | [HTTP status codes & API error format](#13-http-status-codes--api-error-format) | Part 0.2, decision M |
 
 ---
 
@@ -1136,3 +1137,79 @@ on a laptop, but drops requests on every deploy behind a load balancer.
 
 - "How do you deploy without downtime?" → rolling deploy + readiness + connection draining + graceful shutdown + backward-compatible migrations.
 - "What happens to WebSocket connections during a deploy?" → they're cut; clients must reconnect (with backoff) and catch up — design for it.
+
+---
+
+## 13. HTTP status codes & API error format
+
+*Came up in Part 0.2 — what error responses look like.*
+
+### Basics first
+
+- **Status code** — a 3-digit number on every HTTP response saying *what kind* of outcome:
+
+| Range | Meaning | Ones we'll use |
+|---|---|---|
+| `2xx` | Success | `200 OK`, `201 Created` (after `POST` creates something), `204 No Content` |
+| `4xx` | **Client's fault** — fix the request | `400` invalid input, `401` not logged in, `403` logged in but not allowed, `404` not found, `409` conflict (e.g. email taken), `429` too many requests |
+| `5xx` | **Our fault** — retrying later may work | `500` unexpected error, `502` proxy couldn't reach us, `503` not ready |
+
+- `4xx` vs `5xx` matters beyond the user: monitoring alerts on rising `5xx` (we're broken),
+  not on `4xx` (users typing bad input). Returning `500` for bad input pages someone at 3 a.m.
+- **The body carries details** the code can't: *what* was wrong, *which field*.
+- **Consistency beats perfection** — one error shape everywhere means one error handler
+  in the frontend.
+
+### What we chose
+
+**A structured error object** (Part 0.2, decision M):
+
+```json
+{
+  "error": {
+    "code": "validation_failed",
+    "message": "Some fields are invalid.",
+    "fields": { "body": "must be 1–1000 characters" },
+    "request_id": "7f3a…"
+  }
+}
+```
+
+| Field | For | Rule |
+|---|---|---|
+| `code` | Code (frontend branches on it) | Stable, snake_case, never reworded: `validation_failed`, `not_found`, `unauthorized`, `forbidden`, `conflict`, `rate_limited`, `internal` |
+| `message` | Humans | Can be reworded any time |
+| `fields` | Forms | Optional; only for `validation_failed` |
+| `request_id` | Bug reports | Always present; matches the logs (Note 6) |
+
+Used by every endpoint, unknown routes (`404 not_found`) and the recover middleware
+(`500 internal`). `/api/status` and the probes keep their own bodies — they're status
+reports, not errors.
+
+Options we didn't pick: a **plain `{"error": "text"}`** (frontend can't tell error kinds
+or fields apart) and **RFC 9457 Problem Details** (`application/problem+json` — an official
+standard, but wordier and less tooling in our stack than you'd expect).
+
+### In our code
+
+*(Links to the error helper in `internal/platform/httpserver` get added when it's built.)*
+
+### Gotchas
+
+- **Never leak internals in `5xx` bodies** — no stack traces, SQL errors or file paths.
+  Those go to the logs; the user gets `internal` + the request ID.
+- **Don't use `200` with `{"error": …}`** — clients, proxies and monitoring all rely on the status code.
+- **`401` vs `403`:** 401 = "who are you?" (not logged in), 403 = "I know who you are, and no".
+- **Validation errors are `400`, not `500`** — and check *all* fields, returning every
+  problem at once, so the user doesn't fix them one by one.
+
+### Go deeper
+
+- MDN: *HTTP response status codes* (each code with examples)
+- RFC 9457 — Problem Details for HTTP APIs (to know the standard exists)
+- Stripe API docs: *Errors* — a widely admired real-world error design
+
+### Interview angle
+
+- "Design the error handling for a public API." → status codes used correctly, stable machine-readable codes, field errors, request IDs, no internals leaked.
+- "Which errors should the client retry?" → `5xx` and `429` (with backoff); never `4xx` like `400`/`404`.
