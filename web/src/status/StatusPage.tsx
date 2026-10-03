@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchStatus, type StatusResult } from './api'
+import { fetchStatus, type StatusResponse, type StatusResult } from './api'
 import './StatusPage.css'
 
 const POLL_MS = 5000
@@ -54,6 +54,11 @@ export function StatusPage() {
 
           {result.reachable && (
             <>
+              <dt>Pool</dt>
+              <dd>
+                <PoolStats pool={result.data.db_pool} />
+              </dd>
+
               <dt>Version</dt>
               <dd>
                 {result.data.version} <span className="muted">· up {result.data.uptime_s}s</span>
@@ -68,6 +73,17 @@ export function StatusPage() {
         </dl>
       )}
     </main>
+  )
+}
+
+// Live connection-pool numbers (knowledge-base/notes/phase-0-notes.md, note 11).
+function PoolStats({ pool }: { pool: StatusResponse['db_pool'] }) {
+  return (
+    <>
+      {pool.in_use} in use · {pool.idle} idle{' '}
+      <span className="muted">· max {pool.max}</span>
+      {pool.waited > 0 && <span className="down"> · {pool.waited} waited</span>}
+    </>
   )
 }
 

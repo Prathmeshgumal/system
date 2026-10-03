@@ -5,6 +5,7 @@ import { StatusPage } from './StatusPage'
 const healthyBody = {
   api: 'ok',
   postgres: { status: 'ok', latency_ms: 2 },
+  db_pool: { in_use: 1, idle: 2, total: 3, max: 10, waited: 0 },
   version: 'abc123',
   uptime_s: 42,
 }
@@ -12,6 +13,7 @@ const healthyBody = {
 const dbDownBody = {
   api: 'ok',
   postgres: { status: 'down', latency_ms: 0.4 },
+  db_pool: { in_use: 0, idle: 0, total: 0, max: 10, waited: 0 },
   version: 'abc123',
   uptime_s: 42,
 }
@@ -61,6 +63,27 @@ describe('StatusPage', () => {
     expect(await valueOf('Postgres')).toContain('2 ms')
     expect(await valueOf('Version')).toContain('abc123')
     expect(await valueOf('Version')).toContain('up 42s')
+  })
+
+  it('shows the connection pool numbers', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, healthyBody))
+
+    render(<StatusPage />)
+
+    const pool = await valueOf('Pool')
+    expect(pool).toContain('1 in use')
+    expect(pool).toContain('2 idle')
+    expect(pool).toContain('max 10')
+  })
+
+  it('mentions waits only when requests had to wait for a connection', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, { ...healthyBody, db_pool: { ...healthyBody.db_pool, waited: 5 } }),
+    )
+
+    render(<StatusPage />)
+
+    expect(await valueOf('Pool')).toContain('5 waited')
   })
 
   it('shows the API healthy but Postgres down when the API returns 503', async () => {

@@ -2,6 +2,7 @@
 export type StatusResponse = {
   api: 'ok'
   postgres: { status: 'ok' | 'down'; latency_ms: number }
+  db_pool: { in_use: number; idle: number; total: number; max: number; waited: number }
   version: string
   uptime_s: number
 }
