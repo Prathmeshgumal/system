@@ -39,7 +39,14 @@ Tests: 13 Go tests (`go test ./...` in `backend/`), 6 React tests (`pnpm test` i
 3. `curl -i localhost:8080/livez` and `curl -i localhost:8080/readyz`.
 4. `docker compose start postgres`. Watch it recover. Did the API restart? (check its logs)
 
-**Your results:**
+**Your results:** ✅ done 2026-10-03
+- Page: **API healthy, Postgres down** within one poll after stopping Postgres.
+- `/livez` → `200 {"status":"alive"}` · `/readyz` → `503 {"status":"not_ready"}` — exactly
+  the split from Note 2: alive (don't restart) but not ready (don't send users).
+- After `docker compose start postgres` the page went back to healthy **on its own**, and
+  the API was not restarted.
+- Lesson: the backend survives a database outage and recovers without anyone touching it,
+  because liveness doesn't depend on the DB.
 
 ### 2. API crash
 1. With `make dev` running, stop just the API (Ctrl+C stops both — instead run `make db`,
