@@ -1,7 +1,8 @@
 # Part 0.2 — Backend Skeleton: Design
 
 - **Phase:** 0 — Foundations
-- **Status:** 🟦 in design — all decisions and sections approved; spec awaiting your review
+- **Status:** 🟨 built — experiments in [learnings.md](learnings.md) pending
+- **Plan:** skipped (built directly from this design, tests first)
 - **Branch:** `part/0.2-backend-skeleton`
 
 ## Goal
@@ -56,7 +57,7 @@ backend/
 - **Each feature owns its queries** (`notes/queries.sql` → `notes/db/`).
 - **Migrations are shared infrastructure** in `platform/database/migrations/`, embedded in the binary.
 - **New make targets:** `migrate`, `migrate-new name=…`, `migrate-down`, `sqlc`, `test-unit` (no Docker).
-- **sqlc and goose pinned as Go tools** (`go tool sqlc`, `go tool goose`), like `air`.
+- ~~sqlc and goose pinned as Go tools~~ → **changed during build:** goose is used as a library inside the binary (`api migrate …`), and sqlc runs from the pinned `sqlc/sqlc:1.30.0` Docker image (`make sqlc`). As Go tools they would have added hundreds of modules to `go.mod` and every Docker build. Still nothing to install.
 
 ## Section 2 — Startup, config & request flow ✅ approved
 
@@ -217,3 +218,15 @@ fake IDs into our logs. Trusting incoming IDs comes later, between our own servi
 - [ ] Experiments done (or explicitly deferred) in `learnings.md`
 - [ ] "In our code" placeholders for Notes 5–13 in `notes/phase-0-notes.md` replaced with real line links
 - [ ] Tracker shows 0.2 ✅
+
+## Changes made while building
+
+| Change | Why |
+|---|---|
+| goose as a library, sqlc via Docker image (see Section 1) | Keeps `go.mod` and Docker builds lean |
+| `RequestLog("/livez", "/readyz")` logs probes at **debug** | Docker's healthcheck hit `/livez` every 5 s and buried real traffic in production logs |
+| JSON logs encode durations as `"5s"` | `"drain_delay":5` was ambiguous |
+| `database.IsUnavailable` classifies Postgres errors `08xxx`, `57P01–57P03`, network errors and timeouts as **503** | **Bug found in dev:** stopping Postgres kills pooled connections with `57P01`; the first version returned 500. Covered by a unit test now |
+| `DecodeJSON` rejects unknown fields, trailing data and bodies over 1 MiB | Typos in field names fail loudly instead of being silently ignored |
+| `make help` greps only the Makefile | `-include .env` made it print `make Makefile` for every target |
+| Config parse errors name the env var (`SHUTDOWN_TIMEOUT`), not the Go field | Caught by a config test: the library's message named `ShutdownTimeout` |

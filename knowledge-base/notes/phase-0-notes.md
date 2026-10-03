@@ -96,7 +96,7 @@ WebSockets need the proxy to pass through the HTTP `Upgrade` handshake — Vite 
 | [`web/vite.config.ts:12`](../../web/vite.config.ts#L12) | **Dev proxy.** Vite forwards `/api/*` to Go on `localhost:8080` |
 | [`web/Caddyfile:7`](../../web/Caddyfile#L7) | **Full-mode proxy.** Caddy forwards `/api/*` to the `api` container |
 | [`web/Caddyfile:13`](../../web/Caddyfile#L13) | Everything else gets the React files (that's why `/livez` isn't exposed) |
-| [`web/src/status/api.ts:17`](../../web/src/status/api.ts#L17) | React calls `fetch('/api/status')` — a **relative** path, so it goes to whichever proxy served the page |
+| [`web/src/status/api.ts:18`](../../web/src/status/api.ts#L18) | React calls `fetch('/api/status')` — a **relative** path, so it goes to whichever proxy served the page |
 
 [`web/vite.config.ts:12`](../../web/vite.config.ts#L12)
 
@@ -116,7 +116,7 @@ handle /api/* {
 }
 ```
 
-[`web/src/status/api.ts:17`](../../web/src/status/api.ts#L17)
+[`web/src/status/api.ts:18`](../../web/src/status/api.ts#L18)
 
 ```ts
 // web/src/status/api.ts — the React side
@@ -229,18 +229,18 @@ taking traffic (readiness fails), and come back on their own when the DB returns
 | Code | What it does |
 |---|---|
 | [`backend/internal/health/checker.go:41`](../../backend/internal/health/checker.go#L41) | `CheckPostgres` — pings the DB with a **1 s timeout** (`context.WithTimeout`, next line) |
-| [`backend/internal/health/handler.go:33`](../../backend/internal/health/handler.go#L33) | `Register` — which URL goes to which function |
-| [`backend/internal/health/handler.go:41`](../../backend/internal/health/handler.go#L41) | `livez` — checks nothing |
-| [`backend/internal/health/handler.go:46`](../../backend/internal/health/handler.go#L46) | `readyz` — 200 or 503 from the DB check |
-| [`backend/internal/health/handler.go:55`](../../backend/internal/health/handler.go#L55) | `status` — details for the UI |
+| [`backend/internal/health/handler.go:42`](../../backend/internal/health/handler.go#L42) | `Register` — which URL goes to which function |
+| [`backend/internal/health/handler.go:50`](../../backend/internal/health/handler.go#L50) | `livez` — checks nothing |
+| [`backend/internal/health/handler.go:55`](../../backend/internal/health/handler.go#L55) | `readyz` — 200 or 503 from the DB check |
+| [`backend/internal/health/handler.go:67`](../../backend/internal/health/handler.go#L67) | `status` — details for the UI |
 | [`backend/internal/health/checker_test.go:47`](../../backend/internal/health/checker_test.go#L47) | `TestCheckPostgres_PingHangs_GivesUpAtTimeout` — proves the 1-second limit works |
-| [`backend/internal/health/handler_test.go:41`](../../backend/internal/health/handler_test.go#L41) | `TestLivez_DBDown_StillReturns200` — this note's main rule, as a test |
-| [`backend/cmd/api/main.go:93`](../../backend/cmd/api/main.go#L93) | `healthcheck()` — the binary checks its own `/livez` (no curl in distroless)… |
+| [`backend/internal/health/handler_test.go:52`](../../backend/internal/health/handler_test.go#L52) | `TestLivez_DBDown_StillReturns200` — this note's main rule, as a test |
+| [`backend/cmd/api/main.go:166`](../../backend/cmd/api/main.go#L166) | `healthcheck()` — the binary checks its own `/livez` (no curl in distroless)… |
 | [`backend/internal/health/probe.go:13`](../../backend/internal/health/probe.go#L13) | …using `Probe` |
 | [`compose.yaml:16`](../../compose.yaml#L16) | Postgres healthcheck (`pg_isready`) |
-| [`compose.yaml:34`](../../compose.yaml#L34) | API healthcheck (`/api healthcheck`) |
+| [`compose.yaml:54`](../../compose.yaml#L54) | API healthcheck (`/api healthcheck`) |
 
-[`backend/internal/health/handler.go:41`](../../backend/internal/health/handler.go#L41)
+[`backend/internal/health/handler.go:50`](../../backend/internal/health/handler.go#L50)
 
 ```go
 // handler.go — liveness deliberately checks nothing
@@ -306,7 +306,7 @@ func (h *Handler) readyz(w http.ResponseWriter, r *http.Request) {
   class : object. One image can start many containers.
 - **Where images come from:** *downloaded* ready-made (`image: postgres:18` in
   [`compose.yaml:7`](../../compose.yaml#L7)) or *built* by us from a Dockerfile
-  (`build: ./backend` in [`compose.yaml:24`](../../compose.yaml#L24)) — nobody publishes an image of *our* app.
+  (`build: ./backend` in [`compose.yaml:41`](../../compose.yaml#L41)) — nobody publishes an image of *our* app.
 - **Dockerfile** — the recipe: start from X, copy code in, build it, run it.
   **`docker build`** follows the recipe and produces an image (`make up-full` does this for you).
 - **Base image** — the `FROM` line: the existing image the recipe starts from, like
@@ -383,8 +383,8 @@ certificates (to verify HTTPS servers like S3) and timezone data — exactly wha
 | [`backend/.dockerignore:1`](../../backend/.dockerignore#L1) | Keeps `tmp/`, `.env` out of the build |
 | [`web/Dockerfile:4`](../../web/Dockerfile#L4) | React **build** stage: `node:24-alpine` |
 | [`web/Dockerfile:16`](../../web/Dockerfile#L16) | React **run** stage: `caddy:2-alpine` serves the built files |
-| [`compose.yaml:24`](../../compose.yaml#L24) | `build:` for `api`; passes the git commit as `VERSION` (line 27) |
-| [`compose.yaml:44`](../../compose.yaml#L44) | `build:` for `web` |
+| [`compose.yaml:41`](../../compose.yaml#L41) | `build:` for `api`; passes the git commit as `VERSION` (line 27) |
+| [`compose.yaml:65`](../../compose.yaml#L65) | `build:` for `web` |
 
 Result: `relay-api` image = **20 MB** (vs ~800 MB for the `golang` build image).
 
@@ -471,7 +471,7 @@ Inside a feature folder, the usual split is:
 |---|---|
 | [`backend/go.mod:1`](../../backend/go.mod#L1) | Module name `relay` — the start of every import path |
 | [`backend/internal/health/checker.go:4`](../../backend/internal/health/checker.go#L4) | `package health` — our first feature folder |
-| [`backend/cmd/api/main.go:20`](../../backend/cmd/api/main.go#L20) | `import "relay/internal/health"` — how `main` uses it |
+| [`backend/cmd/api/main.go:23`](../../backend/cmd/api/main.go#L23) | `import "relay/internal/health"` — how `main` uses it |
 
 `cmd/api/` holds the program's entry point (`main`). Each future binary (e.g. a WebSocket
 gateway in Phase 3) gets its own `cmd/<name>/` folder, sharing the same `internal/` packages.
@@ -553,10 +553,13 @@ of repetition per setting) and **Viper** (files + env + flags + live reload — 
 
 | Code | What it is |
 |---|---|
-| [`backend/cmd/api/main.go:37`](../../backend/cmd/api/main.go#L37) | **Before 0.2:** settings read by hand with `getenv` / `os.Getenv` (lines 37–38) |
-| [`.env.example`](../../.env.example) | The list of settings and example values (copied to `.env`) |
+| [`internal/platform/config/config.go:19`](../../backend/internal/platform/config/config.go#L19) | `Config` — every setting, with `env` tags and defaults |
+| [`internal/platform/config/config.go:55`](../../backend/internal/platform/config/config.go#L55) | `Validate()` — rules a tag can't express; reports all problems at once |
+| [`internal/platform/config/config.go:83`](../../backend/internal/platform/config/config.go#L83) | `friendly()` — rewrites "field ShutdownTimeout" into "SHUTDOWN_TIMEOUT" so you know what to edit |
+| [`.env.example`](../../.env.example) | Dev values (copied to `.env`) — production uses the defaults |
 
-*(Links to `internal/platform/config` get added when it's built.)*
+**See it yourself:** `env -i PATH=$PATH DATABASE_URL=x SHUTDOWN_TIMEOUT=abc ./api` →
+`SHUTDOWN_TIMEOUT has an invalid value…` and exit code 1. (Experiment 1 in 0.2's learnings.)
 
 ### Gotchas
 
@@ -629,9 +632,17 @@ slower; what 0.1 used) and **`zerolog`** (fastest, zero-allocation, its own chai
 
 | Code | What it is |
 |---|---|
-| [`backend/cmd/api/main.go`](../../backend/cmd/api/main.go) | **Before 0.2:** `log/slog` default text logger — to be replaced by zap |
+| [`internal/platform/logging/logging.go:23`](../../backend/internal/platform/logging/logging.go#L23) | Building the logger: JSON (prod) or coloured console (dev), level filter |
+| [`internal/platform/logging/logging.go:54`](../../backend/internal/platform/logging/logging.go#L54) | `WithLogger` — put a logger into the request's context |
+| [`internal/platform/logging/logging.go:60`](../../backend/internal/platform/logging/logging.go#L60) | `FromContext` — handlers get *their* logger (already carrying the request ID) |
+| [`internal/platform/httpserver/middleware.go:60`](../../backend/internal/platform/httpserver/middleware.go#L60) | `RequestID` middleware — creates the ID, sets `X-Request-ID`, attaches it to the logger |
+| [`internal/platform/httpserver/middleware.go:76`](../../backend/internal/platform/httpserver/middleware.go#L76) | `RequestLog` — one line per request; health probes logged at debug so they don't drown real traffic |
 
-*(Links to `internal/platform/logging` and the request-ID middleware get added when they're built.)*
+A real line from full mode (JSON):
+
+```json
+{"level":"info","msg":"request","request_id":"6ce5520c95313242","method":"POST","path":"/api/notes","status":201,"duration_ms":3.413}
+```
 
 ### Gotchas
 
@@ -711,10 +722,13 @@ the framework instead of Go's HTTP model).
 
 | Code | What it is |
 |---|---|
-| [`backend/internal/health/handler.go:33`](../../backend/internal/health/handler.go#L33) | `Register` — routes with Go 1.22 patterns (`"GET /livez"`) |
-| [`backend/cmd/api/main.go`](../../backend/cmd/api/main.go) | **Before 0.2:** the mux is passed straight to the server, no middleware yet |
-
-*(Links to `internal/platform/httpserver` middleware get added when it's built.)*
+| [`internal/platform/httpserver/middleware.go:23`](../../backend/internal/platform/httpserver/middleware.go#L23) | `Chain` — wraps a handler in middleware, outermost first |
+| [`internal/platform/httpserver/middleware.go:32`](../../backend/internal/platform/httpserver/middleware.go#L32) | `Recover` — panic → `500 internal` + log line |
+| [`internal/platform/httpserver/middleware.go:60`](../../backend/internal/platform/httpserver/middleware.go#L60) | `RequestID` |
+| [`internal/platform/httpserver/middleware.go:76`](../../backend/internal/platform/httpserver/middleware.go#L76) | `RequestLog` |
+| [`internal/platform/httpserver/middleware.go:103`](../../backend/internal/platform/httpserver/middleware.go#L103) | `statusWriter` — remembers the status code so it can be logged |
+| [`cmd/api/main.go:95`](../../backend/cmd/api/main.go#L95) | The real chain: recover → request ID → request log → router |
+| [`internal/platform/httpserver/errors.go:85`](../../backend/internal/platform/httpserver/errors.go#L85) | `NewMux` — router whose unknown routes return our JSON 404 |
 
 ### Gotchas
 
@@ -785,7 +799,14 @@ You still write real SQL (the skill that matters), and the generated code is rea
 
 ### In our code
 
-*(Links to `sqlc.yaml`, the query files and generated code get added when they're built.)*
+| Code | What it is |
+|---|---|
+| [`sqlc.yaml:4`](../../backend/sqlc.yaml#L4) | Where sqlc finds the schema (migrations) and queries; `timestamptz → time.Time` |
+| [`internal/notes/queries.sql:1`](../../backend/internal/notes/queries.sql#L1) | The SQL you write, with `-- name: X :one` |
+| [`internal/notes/db/queries.sql.go:17`](../../backend/internal/notes/db/queries.sql.go#L17) | What sqlc generates — typed `CreateNote(ctx, body)` (never edit) |
+| [`internal/notes/store.go:39`](../../backend/internal/notes/store.go#L39) | The store calls the generated code |
+
+**Run it:** `make sqlc` (uses the pinned `sqlc/sqlc:1.30.0` Docker image — nothing to install).
 
 ### Gotchas
 
@@ -872,7 +893,17 @@ Because the app no longer migrates on boot, we still don't need the `/startupz` 
 
 ### In our code
 
-*(Links to the migrations folder and the migrate command get added when they're built.)*
+| Code | What it is |
+|---|---|
+| [`internal/platform/database/migrations/00001_create_notes.sql:3`](../../backend/internal/platform/database/migrations/00001_create_notes.sql#L3) | First migration — `-- +goose Up` / `-- +goose Down` |
+| [`internal/platform/database/migrate.go:24`](../../backend/internal/platform/database/migrate.go#L24) | `//go:embed` — migration files compiled into the binary |
+| [`internal/platform/database/migrate.go:28`](../../backend/internal/platform/database/migrate.go#L28) | `Migrate` — goose up, logging each applied file |
+| [`internal/platform/database/migrate.go:95`](../../backend/internal/platform/database/migrate.go#L95) | Advisory lock: two `migrate` runs at once can't both apply a migration |
+| [`cmd/api/main.go:112`](../../backend/cmd/api/main.go#L112) | `api migrate up / down / status / create NAME` |
+| [`compose.yaml:23`](../../compose.yaml#L23) | Full mode: the one-off `migrate` service… |
+| [`compose.yaml:52`](../../compose.yaml#L52) | …that `api` waits for (`service_completed_successfully`) |
+
+**Commands:** `make migrate`, `make migrate-down`, `make migrate-status`, `make migrate-new name=…`.
 
 ### Gotchas
 
@@ -910,7 +941,7 @@ Because the app no longer migrates on boot, we still don't need the `/startupz` 
 
 - **Unit test** — checks one piece of code alone, with its dependencies replaced by
   **fakes** (a stand-in that behaves the way you tell it). Fast, no setup.
-  Example: [`checker_test.go`](../../backend/internal/health/checker_test.go#L12) uses a
+  Example: [`checker_test.go`](../../backend/internal/health/checker_test.go#L11) uses a
   `fakePinger` instead of Postgres.
 - **Integration test** — checks our code **together with the real dependency** (a real
   Postgres). Slower, but catches what fakes can't: wrong SQL, missing columns, broken
@@ -947,9 +978,12 @@ leftovers between runs) and **reusing the dev DB** (destroys your dev data — a
 
 | Code | What it is |
 |---|---|
-| [`backend/internal/health/checker_test.go:12`](../../backend/internal/health/checker_test.go#L12) | A **unit test fake** (`fakePinger`) — the 0.1 style |
+| [`internal/health/checker_test.go:11`](../../backend/internal/health/checker_test.go#L11) | A **unit test fake** (`fakePinger`) — the 0.1 style |
+| [`internal/platform/database/dbtest/dbtest.go:56`](../../backend/internal/platform/database/dbtest/dbtest.go#L56) | `dbtest.Pool(t)` — starts Postgres once per package; skips under `-short` |
+| [`internal/platform/database/dbtest/dbtest.go:70`](../../backend/internal/platform/database/dbtest/dbtest.go#L70) | `dbtest.Truncate` — clean tables before and after each test |
+| [`internal/notes/store_test.go:74`](../../backend/internal/notes/store_test.go#L74) | An integration test: the database's `CHECK` rejects 1001 chars on its own |
 
-*(Links to the Testcontainers helper and the first integration test get added when they're built.)*
+**Commands:** `make test-unit` (fast, no Docker — integration tests show as SKIP) vs `make test` (everything).
 
 ### Gotchas
 
@@ -1023,9 +1057,11 @@ a few real ones — the answer to the 100-connection limit at scale; coming in P
 
 | Code | What it is |
 |---|---|
-| [`backend/cmd/api/main.go:49`](../../backend/cmd/api/main.go#L49) | **Before 0.2:** `pgxpool.New` with default settings |
+| [`internal/platform/database/database.go:17`](../../backend/internal/platform/database/database.go#L17) | `Open` — pool built from config (max, min, lifetime, idle) |
+| [`internal/platform/database/database.go:43`](../../backend/internal/platform/database/database.go#L43) | `Stats` — in use / idle / total / max / waited |
+| [`internal/platform/database/errors.go:20`](../../backend/internal/platform/database/errors.go#L20) | `IsUnavailable` — "DB unreachable" (→ 503) vs a bug (→ 500); see the gotcha below |
 
-*(Links to the pool config and pool stats get added when they're built.)*
+On the status page: **Pool** `1 in use · 2 idle · max 10` (and `· N waited` in red if requests had to wait).
 
 ### Gotchas
 
@@ -1036,6 +1072,11 @@ a few real ones — the answer to the 100-connection limit at scale; coming in P
   (an HTTP call, a user) — it starves other requests.
 - **Leaks:** forgetting to close `rows` (or a transaction) keeps the connection borrowed
   forever; the pool slowly empties. pgx + sqlc mostly prevent this, but watch "in use" in the stats.
+- **A database restart kills pooled connections** (found while building 0.2): Postgres
+  ends idle connections with error `57P01` *"terminating connection due to administrator
+  command"*. The next request that borrows one fails with that — not with "can't connect".
+  Our first version only recognised "can't connect" and returned **500** instead of **503**.
+  `IsUnavailable` now treats Postgres error class `08` and `57P01–57P03` as "unavailable".
 - **Lazy connect:** `pgxpool.New` doesn't connect until first use (we relied on that in 0.1
   so the API starts without a DB). With `MinConns > 0`, it starts opening connections in
   the background — still non-blocking.
@@ -1110,9 +1151,15 @@ on a laptop, but drops requests on every deploy behind a load balancer.
 
 | Code | What it is |
 |---|---|
-| [`backend/cmd/api/main.go:81`](../../backend/cmd/api/main.go#L81) | **The 0.1 version:** catch the signal, `srv.Shutdown` with a 10 s limit (line 86) |
+| [`internal/platform/httpserver/server.go:63`](../../backend/internal/platform/httpserver/server.go#L63) | `Serve` — runs until the signal, then the sequence |
+| [`internal/platform/httpserver/server.go:76`](../../backend/internal/platform/httpserver/server.go#L76) | Step 1: mark shutting down → `/readyz` 503; then the drain delay |
+| [`internal/health/handler.go:57`](../../backend/internal/health/handler.go#L57) | `/readyz` returns `shutting_down` |
+| [`cmd/api/main.go:76`](../../backend/cmd/api/main.go#L76) | Second Ctrl+C exits immediately (default signal handling restored) |
+| [`internal/platform/httpserver/server_test.go:16`](../../backend/internal/platform/httpserver/server_test.go#L16) | Test on a real socket: readiness fails first, the in-flight request completes, then the port closes |
+| [`compose.yaml:60`](../../compose.yaml#L60) | `stop_grace_period: 20s` so the sequence finishes before `SIGKILL` |
 
-*(Links to the full sequence in `internal/platform/httpserver` get added when it's built.)*
+Measured in full mode: `docker compose stop api` took **5.2 s** (the 5 s drain), with log lines
+`shutdown started` → `draining in-flight requests` → `http server stopped` → `database pool closed` → `stopped cleanly`.
 
 ### Gotchas
 
@@ -1192,7 +1239,12 @@ standard, but wordier and less tooling in our stack than you'd expect).
 
 ### In our code
 
-*(Links to the error helper in `internal/platform/httpserver` get added when it's built.)*
+| Code | What it is |
+|---|---|
+| [`internal/platform/httpserver/errors.go:32`](../../backend/internal/platform/httpserver/errors.go#L32) | `ErrorBody` — the shared shape |
+| [`internal/platform/httpserver/errors.go:49`](../../backend/internal/platform/httpserver/errors.go#L49) | `WriteError` — every error response goes through here |
+| [`internal/notes/handler.go:67`](../../backend/internal/notes/handler.go#L67) | Mapping service errors → 400 / 503 / 500, logging once |
+| [`internal/platform/httpserver/errors.go:85`](../../backend/internal/platform/httpserver/errors.go#L85) | `NewMux` — unknown routes → `404 not_found` |
 
 ### Gotchas
 
