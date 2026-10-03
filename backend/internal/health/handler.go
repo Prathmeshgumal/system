@@ -1,29 +1,38 @@
 package health
 
 import (
-	"encoding/json"
-	"log/slog"
 	"net/http"
 	"time"
+
+	"relay/internal/platform/database"
+	"relay/internal/platform/httpserver"
 )
 
 // StatusResponse is the body of /api/status, shown on the React status page.
 type StatusResponse struct {
-	API      string           `json:"api"`
-	Postgres DependencyStatus `json:"postgres"`
-	Version  string           `json:"version"`
-	UptimeS  int64            `json:"uptime_s"`
+	API      string             `json:"api"`
+	Postgres DependencyStatus   `json:"postgres"`
+	DBPool   database.PoolStats `json:"db_pool"`
+	Version  string             `json:"version"`
+	UptimeS  int64              `json:"uptime_s"`
+}
+
+// Options are the facts the handler reports but doesn't own.
+type Options struct {
+	Version      string
+	StartedAt    time.Time
+	PoolStats    func() database.PoolStats // live pool numbers (note 11)
+	ShuttingDown func() bool               // true once graceful shutdown starts (note 12)
 }
 
 // Handler serves the health endpoints.
 type Handler struct {
-	checker   *Checker
-	version   string
-	startedAt time.Time
+	checker *Checker
+	opts    Options
 }
 
-func NewHandler(checker *Checker, version string, startedAt time.Time) *Handler {
-	return &Handler{checker: checker, version: version, startedAt: startedAt}
+func NewHandler(checker *Checker, opts Options) *Handler {
+	return &Handler{checker: checker, opts: opts}
 }
 
 // Register adds the health routes to mux.
@@ -39,16 +48,19 @@ func (h *Handler) Register(mux *http.ServeMux) {
 // livez answers "is the process alive?". It deliberately checks nothing else:
 // if this handler runs at all, the answer is yes.
 func (h *Handler) livez(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "alive"})
+	httpserver.WriteJSON(w, r, http.StatusOK, map[string]string{"status": "alive"})
 }
 
 // readyz answers "can this server handle requests right now?".
 func (h *Handler) readyz(w http.ResponseWriter, r *http.Request) {
-	if h.checker.CheckPostgres(r.Context()).Status != StatusOK {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready"})
-		return
+	switch {
+	case h.opts.ShuttingDown():
+		httpserver.WriteJSON(w, r, http.StatusServiceUnavailable, map[string]string{"status": "shutting_down"})
+	case h.checker.CheckPostgres(r.Context()).Status != StatusOK:
+		httpserver.WriteJSON(w, r, http.StatusServiceUnavailable, map[string]string{"status": "not_ready"})
+	default:
+		httpserver.WriteJSON(w, r, http.StatusOK, map[string]string{"status": "ready"})
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 
 // status is the friendly, detailed version of readyz for the UI.
@@ -57,20 +69,13 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 	resp := StatusResponse{
 		API:      StatusOK, // we're answering, so the API is up
 		Postgres: pg,
-		Version:  h.version,
-		UptimeS:  int64(time.Since(h.startedAt).Seconds()),
+		DBPool:   h.opts.PoolStats(),
+		Version:  h.opts.Version,
+		UptimeS:  int64(time.Since(h.opts.StartedAt).Seconds()),
 	}
 	code := http.StatusOK
 	if pg.Status != StatusOK {
 		code = http.StatusServiceUnavailable
 	}
-	writeJSON(w, code, resp)
-}
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		slog.Error("write json response", "err", err)
-	}
+	httpserver.WriteJSON(w, r, code, resp)
 }

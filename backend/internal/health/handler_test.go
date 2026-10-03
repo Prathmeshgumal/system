@@ -7,15 +7,26 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"relay/internal/platform/database"
 )
 
 // newTestMux wires the health handlers to a fake database that is up or down.
 func newTestMux(dbUp bool) *http.ServeMux {
+	return newTestMuxWith(dbUp, false)
+}
+
+func newTestMuxWith(dbUp, shuttingDown bool) *http.ServeMux {
 	var db fakePinger
 	if !dbUp {
 		db.err = errors.New("connection refused")
 	}
-	h := NewHandler(NewChecker(db, time.Second), "test-version", time.Now())
+	h := NewHandler(NewChecker(db, time.Second), Options{
+		Version:      "test-version",
+		StartedAt:    time.Now(),
+		PoolStats:    func() database.PoolStats { return database.PoolStats{InUse: 1, Idle: 2, Total: 3, Max: 10, Waited: 4} },
+		ShuttingDown: func() bool { return shuttingDown },
+	})
 	mux := http.NewServeMux()
 	h.Register(mux)
 	return mux
@@ -117,5 +128,39 @@ func TestHealthEndpoints_RejectNonGET(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("POST %s: code = %d, want 405", path, rec.Code)
 		}
+	}
+}
+
+func TestStatus_IncludesPoolStats(t *testing.T) {
+	rec := get(t, newTestMux(true), "/api/status")
+
+	var body StatusResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	want := database.PoolStats{InUse: 1, Idle: 2, Total: 3, Max: 10, Waited: 4}
+	if body.DBPool != want {
+		t.Fatalf("db_pool = %+v, want %+v", body.DBPool, want)
+	}
+}
+
+// During the shutdown drain (note 12) readiness fails with a distinct status,
+// so the logs show *why* — and liveness stays OK, so nobody restarts us.
+func TestReadyz_ShuttingDown_Returns503ShuttingDown(t *testing.T) {
+	rec := get(t, newTestMuxWith(true, true), "/readyz")
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("code = %d, want 503", rec.Code)
+	}
+	var body map[string]string
+	_ = json.NewDecoder(rec.Body).Decode(&body)
+	if body["status"] != "shutting_down" {
+		t.Fatalf("status = %q, want shutting_down", body["status"])
+	}
+}
+
+func TestLivez_ShuttingDown_StillReturns200(t *testing.T) {
+	if rec := get(t, newTestMuxWith(true, true), "/livez"); rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", rec.Code)
 	}
 }
