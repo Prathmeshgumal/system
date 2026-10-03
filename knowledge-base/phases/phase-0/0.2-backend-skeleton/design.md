@@ -1,7 +1,7 @@
 # Part 0.2 — Backend Skeleton: Design
 
 - **Phase:** 0 — Foundations
-- **Status:** 🟦 in design (brainstorming) — decisions A–M made; Sections 1–2 approved, Section 3 in review
+- **Status:** 🟦 in design (brainstorming) — decisions A–M made; Sections 1–3 approved, Section 4 in review
 - **Branch:** `part/0.2-backend-skeleton`
 
 ## Goal
@@ -116,4 +116,58 @@ POST /api/notes {"body":"hello"}
 `/api/status` adds `"db_pool": {"in_use","idle","total","max","waited"}`; React shows a
 **Pool** row: `1 in use · 2 idle · max 10`.
 
-## Section 3 — Database tooling & running it ⏳ in review
+## Section 3 — Database tooling & running it ✅ approved
+
+### First migration — `internal/platform/database/migrations/00001_create_notes.sql`
+
+```sql
+-- +goose Up
+CREATE TABLE notes (
+    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    body       text        NOT NULL CHECK (char_length(body) BETWEEN 1 AND 1000),
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX notes_created_at_idx ON notes (created_at DESC);
+
+-- +goose Down
+DROP TABLE notes;
+```
+
+- `GENERATED ALWAYS AS IDENTITY` — Postgres assigns IDs (modern replacement for `serial`).
+- `CHECK` — the database is the last line of defence; the service validates first with a friendly error.
+- Index on `created_at DESC` — "newest 20" reads only the newest rows (indexes in depth: Part 1.2).
+
+### Queries — `internal/notes/queries.sql`
+
+```sql
+-- name: CreateNote :one
+INSERT INTO notes (body) VALUES ($1) RETURNING id, body, created_at;
+
+-- name: ListLatestNotes :many
+SELECT id, body, created_at FROM notes ORDER BY created_at DESC LIMIT $1;
+```
+
+`make sqlc` → `CreateNote(ctx, body)` and `ListLatestNotes(ctx, limit)` in `notes/db/`.
+
+### Dev mode
+
+`make dev` = `make db` → **`make migrate`** → api + web. New migration:
+`make migrate-new name=add_x` → edit → `make migrate`.
+
+### Full mode
+
+```
+postgres ──healthy──► migrate (`api migrate`, exits 0) ──completed──► api ──► web
+```
+
+- `migrate` = one-off service, same api image, command `migrate`; waits for Postgres **healthy**.
+- `api` waits for `migrate` **completed successfully** — a failed migration means the API never starts.
+- `api` gets `stop_grace_period: 20s` (drain 5 s + shutdown 10 s fit before `SIGKILL`).
+
+### Undoing
+
+- `make migrate-down` undoes the last migration (for local iteration).
+- Part 1.1 starts with a **new** migration `00002_drop_notes.sql` and deletes `internal/notes/`;
+  `00001` is never edited (Note 9).
+
+## Section 4 — Testing & "done when" ⏳ in review
