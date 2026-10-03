@@ -81,12 +81,14 @@ WebSockets need the proxy to pass through the HTTP `Upgrade` handshake — Vite 
 
 ### In our code
 
-| File | What it does |
+| Code | What it does |
 |---|---|
-| [`web/vite.config.ts`](../web/vite.config.ts) (lines 11–13) | **Dev proxy.** Vite forwards `/api/*` to Go on `localhost:8080` |
-| [`web/Caddyfile`](../web/Caddyfile) (lines 7–9) | **Full-mode proxy.** Caddy forwards `/api/*` to the `api` container |
-| [`web/Caddyfile`](../web/Caddyfile) (lines 13–17) | Everything else gets the React files (that's why `/livez` isn't exposed) |
-| [`web/src/status/api.ts`](../web/src/status/api.ts) | React calls `fetch('/api/status')` — a **relative** path, so it goes to whichever proxy served the page |
+| [`web/vite.config.ts:12`](../web/vite.config.ts#L12) | **Dev proxy.** Vite forwards `/api/*` to Go on `localhost:8080` |
+| [`web/Caddyfile:7`](../web/Caddyfile#L7) | **Full-mode proxy.** Caddy forwards `/api/*` to the `api` container |
+| [`web/Caddyfile:13`](../web/Caddyfile#L13) | Everything else gets the React files (that's why `/livez` isn't exposed) |
+| [`web/src/status/api.ts:17`](../web/src/status/api.ts#L17) | React calls `fetch('/api/status')` — a **relative** path, so it goes to whichever proxy served the page |
+
+[`web/vite.config.ts:12`](../web/vite.config.ts#L12)
 
 ```ts
 // web/vite.config.ts — dev mode
@@ -95,12 +97,16 @@ proxy: {
 },
 ```
 
+[`web/Caddyfile:7`](../web/Caddyfile#L7)
+
 ```
 # web/Caddyfile — full mode
 handle /api/* {
     reverse_proxy api:8080           # "/api/…" → the Go container (by its compose service name)
 }
 ```
+
+[`web/src/status/api.ts:17`](../web/src/status/api.ts#L17)
 
 ```ts
 // web/src/status/api.ts — the React side
@@ -181,13 +187,20 @@ taking traffic (readiness fails), and come back on their own when the DB returns
 
 ### In our code
 
-| File | What it does |
+| Code | What it does |
 |---|---|
-| [`backend/internal/health/checker.go`](../backend/internal/health/checker.go) | `CheckPostgres` — pings the DB with a **1 s timeout** (`context.WithTimeout`) |
-| [`backend/internal/health/handler.go`](../backend/internal/health/handler.go) | `livez` (checks nothing), `readyz` (200/503 from the DB check), `status` (details for the UI) |
-| [`backend/internal/health/handler_test.go`](../backend/internal/health/handler_test.go) | `TestLivez_DBDown_StillReturns200` — this note's main rule, as a test |
-| [`backend/internal/health/probe.go`](../backend/internal/health/probe.go) + [`backend/cmd/api/main.go`](../backend/cmd/api/main.go) | `api healthcheck` subcommand — the binary checks its own `/livez` (no curl in distroless) |
-| [`compose.yaml`](../compose.yaml) | `healthcheck:` for postgres (`pg_isready`) and api (`/api healthcheck`) |
+| [`backend/internal/health/checker.go:41`](../backend/internal/health/checker.go#L41) | `CheckPostgres` — pings the DB with a **1 s timeout** (`context.WithTimeout`, next line) |
+| [`backend/internal/health/handler.go:33`](../backend/internal/health/handler.go#L33) | `Register` — which URL goes to which function |
+| [`backend/internal/health/handler.go:41`](../backend/internal/health/handler.go#L41) | `livez` — checks nothing |
+| [`backend/internal/health/handler.go:46`](../backend/internal/health/handler.go#L46) | `readyz` — 200 or 503 from the DB check |
+| [`backend/internal/health/handler.go:55`](../backend/internal/health/handler.go#L55) | `status` — details for the UI |
+| [`backend/internal/health/handler_test.go:41`](../backend/internal/health/handler_test.go#L41) | `TestLivez_DBDown_StillReturns200` — this note's main rule, as a test |
+| [`backend/cmd/api/main.go:93`](../backend/cmd/api/main.go#L93) | `healthcheck()` — the binary checks its own `/livez` (no curl in distroless)… |
+| [`backend/internal/health/probe.go:13`](../backend/internal/health/probe.go#L13) | …using `Probe` |
+| [`compose.yaml:16`](../compose.yaml#L16) | Postgres healthcheck (`pg_isready`) |
+| [`compose.yaml:34`](../compose.yaml#L34) | API healthcheck (`/api healthcheck`) |
+
+[`backend/internal/health/handler.go:41`](../backend/internal/health/handler.go#L41)
 
 ```go
 // handler.go — liveness deliberately checks nothing
@@ -291,12 +304,15 @@ certificates (to verify HTTPS servers like S3) and timezone data — exactly wha
 
 ### In our code
 
-| File | What it does |
+| Code | What it does |
 |---|---|
-| [`backend/Dockerfile`](../backend/Dockerfile) | Go: `golang:1.27` build stage → `distroless/static:nonroot` run stage |
-| [`backend/.dockerignore`](../backend/.dockerignore) | Keeps `tmp/`, `.env` out of the build |
-| [`web/Dockerfile`](../web/Dockerfile) | React: `node:24-alpine` builds static files → `caddy:2-alpine` serves them |
-| [`compose.yaml`](../compose.yaml) | `build:` for `api` and `web`; passes the git commit as `VERSION` |
+| [`backend/Dockerfile:4`](../backend/Dockerfile#L4) | Go **build** stage: `golang:1.27` |
+| [`backend/Dockerfile:18`](../backend/Dockerfile#L18) | Go **run** stage: `distroless/static:nonroot`, and the next line copies in only the binary |
+| [`backend/.dockerignore:1`](../backend/.dockerignore#L1) | Keeps `tmp/`, `.env` out of the build |
+| [`web/Dockerfile:4`](../web/Dockerfile#L4) | React **build** stage: `node:24-alpine` |
+| [`web/Dockerfile:16`](../web/Dockerfile#L16) | React **run** stage: `caddy:2-alpine` serves the built files |
+| [`compose.yaml:24`](../compose.yaml#L24) | `build:` for `api`; passes the git commit as `VERSION` (line 27) |
+| [`compose.yaml:44`](../compose.yaml#L44) | `build:` for `web` |
 
 Result: `relay-api` image = **20 MB** (vs ~800 MB for the `golang` build image).
 
