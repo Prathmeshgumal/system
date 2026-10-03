@@ -1021,7 +1021,7 @@ a few real ones — the answer to the 100-connection limit at scale; coming in P
 
 | Code | What it is |
 |---|---|
-| [`backend/cmd/api/main.go:51`](../backend/cmd/api/main.go#L51) | **Before 0.2:** `pgxpool.New` with default settings |
+| [`backend/cmd/api/main.go:49`](../backend/cmd/api/main.go#L49) | **Before 0.2:** `pgxpool.New` with default settings |
 
 *(Links to the pool config and pool stats get added when they're built.)*
 
