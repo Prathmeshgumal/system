@@ -32,6 +32,7 @@ func newWithWriter(level, format string, w io.Writer) (*zap.Logger, error) {
 		cfg := zap.NewProductionEncoderConfig()
 		cfg.TimeKey = "time"
 		cfg.EncodeTime = zapcore.ISO8601TimeEncoder
+		cfg.EncodeDuration = zapcore.StringDurationEncoder // "5s", not 5
 		enc = zapcore.NewJSONEncoder(cfg)
 	case "console":
 		cfg := zap.NewDevelopmentEncoderConfig()

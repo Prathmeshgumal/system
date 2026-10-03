@@ -125,7 +125,7 @@ func TestRequestLog_RecordsMethodPathStatusAndDuration(t *testing.T) {
 	log, logs := observedLogger()
 	h := Chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
-	}), RequestID(log), RequestLog())
+	}), RequestID(log), RequestLog("/livez"))
 
 	serve(h, http.MethodPost, "/api/notes")
 
@@ -149,11 +149,31 @@ func TestRequestLog_HandlerWritesNoStatus_LogsImplicit200(t *testing.T) {
 	log, logs := observedLogger()
 	h := Chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok")) // no explicit WriteHeader → Go sends 200
-	}), RequestID(log), RequestLog())
+	}), RequestID(log), RequestLog("/livez"))
 
 	serve(h, http.MethodGet, "/")
 
 	if got := logs.FilterMessage("request").All()[0].ContextMap()["status"]; got != int64(200) {
 		t.Fatalf("status = %v, want 200", got)
+	}
+}
+
+// Probes hit every few seconds; logging them at info would bury real traffic.
+func TestRequestLog_QuietPathsAreLoggedAtDebug(t *testing.T) {
+	log, logs := observedLogger()
+	h := Chain(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), RequestID(log), RequestLog("/livez"))
+
+	serve(h, http.MethodGet, "/livez")
+	serve(h, http.MethodGet, "/api/notes")
+
+	entries := logs.FilterMessage("request").All()
+	if len(entries) != 2 {
+		t.Fatalf("want 2 request lines, got %d", len(entries))
+	}
+	if entries[0].Level != zapcore.DebugLevel {
+		t.Errorf("/livez logged at %s, want debug", entries[0].Level)
+	}
+	if entries[1].Level != zapcore.InfoLevel {
+		t.Errorf("/api/notes logged at %s, want info", entries[1].Level)
 	}
 }

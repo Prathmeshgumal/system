@@ -71,13 +71,23 @@ func RequestID(base *zap.Logger) Middleware {
 
 // RequestLog writes one line per request after it finishes: method, path,
 // status and duration. It uses the logger from RequestID, so it must run inside it.
-func RequestLog() Middleware {
+// quietPaths (e.g. health probes, hit every few seconds) are logged at debug
+// level so they don't bury real traffic in production.
+func RequestLog(quietPaths ...string) Middleware {
+	quiet := make(map[string]bool, len(quietPaths))
+	for _, p := range quietPaths {
+		quiet[p] = true
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 			sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(sw, r)
-			logging.FromContext(r.Context()).Info("request",
+			level := zap.InfoLevel
+			if quiet[r.URL.Path] {
+				level = zap.DebugLevel
+			}
+			logging.FromContext(r.Context()).Log(level, "request",
 				zap.String("method", r.Method),
 				zap.String("path", r.URL.Path),
 				zap.Int("status", sw.status),

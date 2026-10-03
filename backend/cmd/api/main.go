@@ -79,7 +79,7 @@ func serve() error {
 	if err != nil {
 		return err
 	}
-	defer func() { pool.Close(); log.Info("database pool closed") }() // step 4
+	defer pool.Close() // safety net for early returns; Close is safe to call twice
 
 	var srv *httpserver.Server // assigned below; readyz asks it whether we're shutting down
 	mux := httpserver.NewMux()
@@ -95,7 +95,7 @@ func serve() error {
 	handler := httpserver.Chain(mux,
 		httpserver.Recover(log),
 		httpserver.RequestID(log),
-		httpserver.RequestLog(),
+		httpserver.RequestLog("/livez", "/readyz"),
 	)
 	srv = httpserver.New(":"+strconv.Itoa(cfg.Port), handler, log, cfg.ShutdownDrainDelay, cfg.ShutdownTimeout)
 
@@ -103,6 +103,8 @@ func serve() error {
 	if err := srv.Run(ctx); err != nil { // steps 1–3 happen inside
 		return err
 	}
+	pool.Close() // step 4
+	log.Info("database pool closed")
 	log.Info("stopped cleanly")
 	return nil
 }

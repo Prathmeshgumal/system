@@ -5,14 +5,32 @@
 -include .env
 export
 
+SQLC_IMAGE := sqlc/sqlc:1.30.0
+
 .DEFAULT_GOAL := help
-.PHONY: help db api web dev up-full down clean logs psql test smoke
+.PHONY: help db migrate migrate-down migrate-status migrate-new sqlc api web dev up-full down clean logs psql test test-unit smoke
 
 help: ## List all commands
-	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-9s %s\n", $$1, $$2}'
+	@grep -E '^[a-z-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk -F':.*## ' '{printf "  make %-15s %s\n", $$1, $$2}'
 
 db: ## Start only Postgres in Docker
 	docker compose up -d --wait postgres
+
+migrate: ## Apply new database migrations
+	cd backend && go run ./cmd/api migrate up
+
+migrate-down: ## Undo the last migration
+	cd backend && go run ./cmd/api migrate down
+
+migrate-status: ## List migrations and whether they've run
+	cd backend && go run ./cmd/api migrate status
+
+migrate-new: ## Create a migration file: make migrate-new name=add_title
+	@test -n "$(name)" || (echo "usage: make migrate-new name=add_title" && exit 1)
+	cd backend && go run ./cmd/api migrate create $(name)
+
+sqlc: ## Regenerate Go code from SQL queries (never edit the output)
+	docker run --rm -u "$$(id -u):$$(id -g)" -v "$(CURDIR)/backend:/src" -w /src $(SQLC_IMAGE) generate
 
 api: ## Run the Go API with live reload
 	cd backend && go tool air
@@ -20,7 +38,7 @@ api: ## Run the Go API with live reload
 web: ## Run the Vite dev server (React)
 	cd web && pnpm dev
 
-dev: db ## Postgres + API + web together (Ctrl+C stops API and web)
+dev: db migrate ## Postgres + migrations + API + web (Ctrl+C stops API and web)
 	$(MAKE) -j2 api web
 
 up-full: ## Build real images and run everything in containers (http://localhost:8000)
@@ -38,8 +56,12 @@ logs: ## Follow logs of all containers
 psql: ## Open a SQL shell in the database
 	docker compose exec postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB)
 
-test: ## Run backend and frontend tests
+test: ## All tests incl. integration (needs Docker)
 	cd backend && go test ./...
+	cd web && pnpm test
+
+test-unit: ## Fast tests only, no Docker needed
+	cd backend && go test -short ./...
 	cd web && pnpm test
 
 smoke: ## End-to-end check of full mode

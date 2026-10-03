@@ -1,5 +1,5 @@
 # Dev mode:  `make db`      → only postgres (services without a profile)
-# Full mode: `make up-full` → postgres + api + web (the "full" profile)
+# Full mode: `make up-full` → postgres + migrate (one-off) + api + web (the "full" profile)
 name: relay
 
 services:
@@ -19,8 +19,25 @@ services:
       timeout: 3s
       retries: 10
 
+  # One-off job: apply migrations, then exit. api starts only if this succeeds (decision H).
+  migrate:
+    profiles: [full]
+    image: relay-api:local
+    build:
+      context: ./backend
+      args:
+        VERSION: ${VERSION:-dev}
+    command: ["migrate", "up"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy # migrations need a working database
+    restart: "no"
+
   api:
     profiles: [full]
+    image: relay-api:local
     build:
       context: ./backend
       args:
@@ -29,14 +46,18 @@ services:
       PORT: "8080"
       # Inside the Docker network, Postgres is reached by its service name, not localhost.
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      # LOG_LEVEL, LOG_FORMAT, SHUTDOWN_DRAIN_DELAY: production defaults (info, json, 5s)
     depends_on:
-      - postgres # waits for the container to start, not to be healthy — /readyz handles the gap
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "/api", "healthcheck"] # no curl in distroless, so the binary checks itself
       interval: 5s
       timeout: 3s
       retries: 5
       start_period: 5s
+    # drain (5s) + shutdown timeout (10s) must finish before Docker sends SIGKILL (note 12)
+    stop_grace_period: 20s
     # No ports: the API is only reachable through Caddy, like in production.
 
   web:
