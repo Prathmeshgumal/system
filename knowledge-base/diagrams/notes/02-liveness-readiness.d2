@@ -1,23 +1,33 @@
-# Liveness vs readiness during a short Postgres outage.
+# Two copies of the Go BACKEND (no frontend here) during a short Postgres problem.
+# The "watcher" (Docker today, load balancer in Phase 3, Kubernetes in Phase 7)
+# calls two URLs on each copy and acts on the answers. Users never call these URLs.
 direction: right
 
-lb: "Load balancer /\norchestrator" {shape: hexagon}
+users: "Users' requests" {shape: person}
 
-ok: "Server A" {
+watcher: "Watcher\n(load balancer / Docker / k8s)\nasks every few seconds" {shape: hexagon}
+
+a: "Go backend - copy A" {
   style.fill: "#e8f5e9"
-  live: "/livez -> 200\n(process alive)"
-  ready: "/readyz -> 200\n(DB reachable)"
+  live: "URL /livez\n'alive?' -> 200 yes"
+  ready: "URL /readyz\n'can take users?' -> 200 yes"
 }
 
-blip: "Server B (DB unreachable)" {
+b: "Go backend - copy B (can't reach DB)" {
   style.fill: "#fff3e0"
-  live: "/livez -> 200\n(still alive: DON'T restart)"
-  ready: "/readyz -> 503\n(not ready: no traffic)"
+  live: "URL /livez\n'alive?' -> 200 yes\n=> NOT restarted"
+  ready: "URL /readyz\n'can take users?' -> 503 no\n=> gets no users for now"
 }
 
 db: "Postgres" {shape: cylinder}
 
-lb -> ok.ready: "send traffic"
-lb -> blip.ready: "skip until 200 again" {style.stroke-dash: 4; style.stroke: "#e65100"}
-ok.ready -> db: "SELECT 1"
-blip.ready -> db: "timeout" {style.stroke: red; style.stroke-dash: 4}
+watcher -> a.live {style.stroke-dash: 4}
+watcher -> a.ready {style.stroke-dash: 4}
+watcher -> b.live {style.stroke-dash: 4}
+watcher -> b.ready {style.stroke-dash: 4}
+
+users -> watcher: "all user traffic\ngoes through the watcher"
+watcher -> a: "sends users here" {style.stroke-width: 3}
+
+a.ready -> db: "SELECT 1 ok"
+b.ready -> db: "timeout" {style.stroke: red; style.stroke-dash: 4}

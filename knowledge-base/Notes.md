@@ -152,6 +152,11 @@ fetch('/api/status', ...)            // no host → same origin as the page
 
 ![liveness vs readiness](diagrams/notes/02-liveness-readiness.svg)
 
+**Reading the diagram:** "copy A" and "copy B" are two identical copies of the **Go backend
+only** — the frontend isn't here (it's static files served separately by Caddy/a CDN). The
+two boxes inside each copy are two **URLs** on that backend, not two programs. The
+**watcher** calls them; users never do.
+
 ### What it is
 
 Something outside your app (a load balancer, Kubernetes, Docker, AWS) regularly calls
