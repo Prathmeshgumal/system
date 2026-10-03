@@ -1,0 +1,18 @@
+# sqlc reads the schema (our goose migrations) and each feature's queries,
+# checks them, and generates typed Go. Run: make sqlc. Never edit the output.
+# See knowledge-base/notes/phase-0-notes.md, note 8.
+version: "2"
+sql:
+  - engine: postgresql
+    schema: internal/platform/database/migrations
+    queries: internal/notes/queries.sql
+    gen:
+      go:
+        package: db
+        out: internal/notes/db
+        sql_package: pgx/v5
+        emit_json_tags: true
+        overrides:
+          # Use Go's time.Time instead of pgx's wrapper type for NOT NULL timestamps.
+          - db_type: timestamptz
+            go_type: time.Time
