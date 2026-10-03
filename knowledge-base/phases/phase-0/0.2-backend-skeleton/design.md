@@ -1,7 +1,7 @@
 # Part 0.2 — Backend Skeleton: Design
 
 - **Phase:** 0 — Foundations
-- **Status:** 🟦 in design (brainstorming) — decisions A–M made; Section 1 approved, Section 2 in review
+- **Status:** 🟦 in design (brainstorming) — decisions A–M made; Sections 1–2 approved, Section 3 in review
 - **Branch:** `part/0.2-backend-skeleton`
 
 ## Goal
@@ -58,4 +58,62 @@ backend/
 - **New make targets:** `migrate`, `migrate-new name=…`, `migrate-down`, `sqlc`, `test-unit` (no Docker).
 - **sqlc and goose pinned as Go tools** (`go tool sqlc`, `go tool goose`), like `air`.
 
-## Section 2 — Startup, config & request flow ⏳ in review
+## Section 2 — Startup, config & request flow ✅ approved
+
+### Startup
+
+```
+api (serve)
+ 1. config.Load()      env vars → Config; missing/invalid → print what's wrong, exit 1
+ 2. logging.New(cfg)   zap logger
+ 3. database.Open(cfg) pool with our settings (lazy — starts even if the DB is down)
+ 4. routes             health (livez, readyz, api/status) + notes
+ 5. middleware         recover → request ID → request log → router
+ 6. serve; on SIGTERM  full shutdown sequence (decision K)
+
+api migrate            steps 1–3, goose up, exit 0 (or 1 with the error)
+api healthcheck        unchanged from 0.1
+```
+
+### Settings
+
+| Env var | Default | Dev (`.env.example`) | Controls |
+|---|---|---|---|
+| `PORT` | `8080` | | Listen port |
+| `DATABASE_URL` | **required** | `…@localhost:5432/…` | Postgres address |
+| `LOG_LEVEL` | `info` | `debug` | Lowest level printed |
+| `LOG_FORMAT` | `json` | `console` | Machine vs human readable |
+| `DB_MAX_CONNS` | `10` | | Pool max |
+| `DB_MIN_CONNS` | `2` | | Pool min |
+| `DB_MAX_CONN_LIFETIME` | `1h` | | Replace connections after |
+| `DB_MAX_CONN_IDLE_TIME` | `30m` | | Close unused connections after |
+| `SHUTDOWN_DRAIN_DELAY` | `5s` | `0s` | Wait for the LB to notice |
+| `SHUTDOWN_TIMEOUT` | `10s` | | Max time for in-flight requests |
+
+Defaults are production-safe; dev overrides in `.env`. `Validate()` also checks
+`DB_MIN_CONNS ≤ DB_MAX_CONNS`, port 1–65535, known `LOG_LEVEL` / `LOG_FORMAT` values.
+
+### One request, end to end
+
+```
+POST /api/notes {"body":"hello"}
+  ├─ recover      panic → 500 internal
+  ├─ request ID   X-Request-ID header + logger.With(request_id) in the context
+  ├─ request log  one line after: method, path, status, duration_ms
+  └─ router → notes handler
+                ├─ decode JSON        bad JSON       → 400 invalid_json
+                ├─ service.Create     empty/too long → 400 validation_failed (+ fields.body)
+                ├─ store → sqlc → pgx DB unavailable → 503 unavailable (logged with the cause)
+                └─ 201 {"id":1,"body":"hello","created_at":"…"}
+```
+
+- Handlers take their logger from the request context, so every line has the request ID.
+- Errors are logged once, where they become a response; clients get code + request ID only.
+- `GET /api/notes` → `200 {"notes":[…]}`, newest 20 first. Unknown routes → `404 not_found`.
+
+### Status page
+
+`/api/status` adds `"db_pool": {"in_use","idle","total","max","waited"}`; React shows a
+**Pool** row: `1 in use · 2 idle · max 10`.
+
+## Section 3 — Database tooling & running it ⏳ in review
