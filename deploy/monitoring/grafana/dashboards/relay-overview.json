@@ -619,7 +619,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (reason) (increase(ws_clients_dropped_total[5m]))",
+          "expr": "sum by (reason) (increase(ws_clients_dropped_total[5m])) or vector(0)",
           "legendFormat": "{{reason}}",
           "datasource": {
             "type": "prometheus",

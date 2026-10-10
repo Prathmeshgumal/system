@@ -34,6 +34,7 @@ services:
       DATABASE_URL: postgres://relay:${POSTGRES_PASSWORD}@postgres:5432/relay?sslmode=disable
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env.prod}
       COOKIE_SECURE: "true" # HTTPS only from here on
+      BCRYPT_COST: ${BCRYPT_COST:-12} # lowered only for load-test setups (Part 2.4)
       LOG_FORMAT: json
       METRICS_ADDR: ":9090"
       # S3 by default: no keys — the AWS SDK picks up the instance's IAM role.
