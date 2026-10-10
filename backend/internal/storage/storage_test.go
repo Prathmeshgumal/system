@@ -126,3 +126,23 @@ func TestPresignUpload_PublicURLRewritesTheBase(t *testing.T) {
 		t.Errorf("fields = %v", up.Fields)
 	}
 }
+
+// In AWS the browser posts straight to the bucket. That URL's origin must match
+// what Terraform puts in the CSP and the bucket's CORS rule:
+// https://<bucket>.s3.<region>.amazonaws.com (bucket_regional_domain_name).
+func TestPresignUpload_AWSURLMatchesTheCORSOrigin(t *testing.T) {
+	s, err := storage.New(config.S3Config{
+		Endpoint: "s3.eu-central-1.amazonaws.com", Region: "eu-central-1", Bucket: "relay-media-123-eu-central-1",
+		UseSSL: true, AccessKey: "AKIAEXAMPLE", SecretKey: "secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	up, err := s.PresignUpload(context.Background(), "avatars/1/a.jpg", "image/jpeg", 10, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "https://relay-media-123-eu-central-1.s3.eu-central-1.amazonaws.com/"; up.URL != want {
+		t.Errorf("URL = %q, want %q", up.URL, want)
+	}
+}

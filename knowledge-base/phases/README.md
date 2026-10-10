@@ -31,14 +31,17 @@ Status: ⬜ not started · 🟦 design · 🟨 building · ✅ done
 | 1.3 Real-time | WebSocket hub, live messages/edits/deletes, unread counts, reconnect + catch-up | WebSocket protocol, goroutine per connection, heartbeats, ordering, idempotency | ✅ [learnings](phase-1/1.3-realtime/learnings.md) (experiments to run) |
 | 1.4 Measure it | k6 test with 100 users, pprof, fix the first bottleneck | Latency percentiles, profiling, flame graphs | ✅ [learnings](phase-1/1.4-measure/learnings.md) — bcrypt burst found + fixed |
 
-## Phase 2 — Live on the internet (v0.2)
+## Phase 2 — Live on the internet (v0.2) · [overview](phase-2/README.md) · [design](phase-2/design.md) · [plan](phase-2/plan.md)
 
 | Part | Build | Learn | Status |
 |---|---|---|---|
-| 2.1 Richer chat | Typing, read receipts, reactions, replies, browser notifications, dark mode | Temporary vs stored events, write amplification | ⬜ |
-| 2.2 Media | Profile pictures via MinIO / S3 presigned uploads | Object storage, presigned URLs, why files don't go in the DB | ⬜ |
-| 2.3 First AWS deploy | Guard-rails, IAM, VPC, EC2, Terraform, Caddy HTTPS, `make deploy` | Networking basics, DNS, TLS, infrastructure-as-code | ⬜ |
-| 2.4 Observability | Prometheus + Grafana + Loki, k6 against AWS, find the breaking point | RED/USE metrics, bottleneck hunting, capacity limits | ⬜ |
+| 2.1 Richer chat | Typing, read receipts, reactions, replies, browser notifications, dark mode | Temporary vs stored events, write amplification | ✅ [learnings](phase-2/2.1-richer-chat/learnings.md) (experiments to run) |
+| 2.2 Media | Profile pictures via S3 presigned uploads (RustFS locally — MinIO images are discontinued) | Object storage, presigned URLs, why files don't go in the DB | ✅ [learnings](phase-2/2.2-media/learnings.md) (experiments to run) |
+| 2.3 First AWS deploy | Guard-rails, IAM, VPC, EC2, Terraform, Caddy HTTPS, `make deploy` | Networking basics, DNS, TLS, infrastructure-as-code | 🟨 [learnings](phase-2/2.3-aws-deploy/learnings.md) — built and tested locally; `terraform apply` is yours |
+| 2.4 Observability | Prometheus + Grafana + Loki, k6 against AWS, find the breaking point | RED/USE metrics, bottleneck hunting, capacity limits | ✅ [learnings](phase-2/2.4-observability/learnings.md) — measured on a t3.micro-sized stack; AWS run is yours |
+
+> Part 0.2 was built separately on `part/0.2-backend-skeleton` and overlaps Phases 1–2's
+> foundations: see [merging-0.2.md](merging-0.2.md) for what conflicts and a proposed path.
 
 ## Phase 3 — Ready for real users (v0.3)
 

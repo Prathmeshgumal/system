@@ -27,12 +27,13 @@ resource "aws_iam_role_policy" "media" {
         Resource = "${aws_s3_bucket.media.arn}/avatars/*"
       },
       {
-        # Without ListBucket, S3 answers a missing object with 403 instead of 404.
-        Sid       = "ListAvatars"
-        Effect    = "Allow"
-        Action    = "s3:ListBucket"
-        Resource  = aws_s3_bucket.media.arn
-        Condition = { StringLike = { "s3:prefix" = ["avatars/*"] } }
+        # Without ListBucket, S3 answers a missing object with 403 instead of 404
+        # (it won't reveal whether a key exists). No s3:prefix condition: that key
+        # only exists on list requests, so a HEAD/GET would never match it.
+        Sid      = "ListBucket"
+        Effect   = "Allow"
+        Action   = "s3:ListBucket"
+        Resource = aws_s3_bucket.media.arn
       },
     ]
   })

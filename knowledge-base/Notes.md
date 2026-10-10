@@ -16,6 +16,10 @@ Format per note: **What it is → Why it matters → What we chose → In our co
 | 5 | [HTTP vs polling vs WebSockets](#5-http-vs-polling-vs-websockets) | Phase 1, decisions H–J |
 | 6 | [Ordering & cursor pagination](#6-ordering--cursor-pagination) | Phase 1, decisions E–G |
 | 7 | [Password hashing & CPU-heavy work](#7-password-hashing--cpu-heavy-work) | Phase 1, decision A + Part 1.4 |
+| 8 | [Temporary vs stored events, and write amplification](#8-temporary-vs-stored-events-and-write-amplification) | Part 2.1, decisions A–B |
+| 9 | [Metrics: RED, USE and label cardinality](#9-metrics-red-use-and-label-cardinality) | Part 2.4, decisions O–Q |
+| 10 | [Object storage & presigned uploads](#10-object-storage--presigned-uploads) | Part 2.2, decisions G–I |
+| 11 | [One server on the internet: VPC, firewall, IAM, TLS](#11-one-server-on-the-internet-vpc-firewall-iam-tls) | Part 2.3, decisions J–N |
 
 ---
 
@@ -708,4 +712,254 @@ queued longer than 10 s gets `503` + `Retry-After` (**load shedding**) instead o
 - "How do you store passwords?" → slow salted hash, cost tuning, pepper, rehash on login.
 - "One expensive endpoint is slowing everything" → bulkhead/semaphore, separate pool, queue + shed, or move it to its own service.
 - "Why did p99 jump while average looked fine?" → contention for a shared resource; find it with a profiler, not by guessing.
+
+---
+
+## 8. Temporary vs stored events, and write amplification
+
+*Came up in Part 2.1 — typing indicators and read receipts.*
+
+### What it is
+
+Not every event deserves a database row:
+
+| | Temporary event | Stored event |
+|---|---|---|
+| Example | "Alice is typing" | a message, a read marker, a reaction |
+| If it's lost | nobody notices — the next one replaces it | the conversation is wrong |
+| Lives | in memory, for seconds | in Postgres, forever |
+| Delivered | best effort over the WebSocket | written first, *then* pushed; caught up on reconnect |
+
+**Write amplification:** one user action causes many writes or deliveries. A read receipt is
+one `UPDATE` — then one event to *every* member. In a group of 50 where everyone reads every
+message, one message causes 50 reads × 50 recipients = **2,500 event deliveries**.
+
+### Why it matters
+
+Storing typing events would mean a database write per keystroke burst for something nobody
+will ever read back. And amplification is how "a small feature" becomes the biggest load: in
+our 100-user soak test, **read calls outnumbered messages** (2,494 vs 1,987 in 3 minutes) and
+clients received ~4 WebSocket events for every message delivered.
+
+### What we chose
+
+- Typing: a client → server WebSocket frame, membership-checked, relayed to the other members,
+  never stored; the client sends at most one per 3 s and shows it for 6 s.
+- A per-connection **token bucket** (burst 5, 2/s) drops floods — a fixed "one frame per 500 ms"
+  rule dropped real typing events (see [2.1 learnings](phases/phase-2/2.1-richer-chat/learnings.md)).
+- Read receipts reuse `last_read_seq` (no per-message rows); the client sends at most one read
+  per newest message.
+
+### In our code
+
+| Code | What it does |
+|---|---|
+| [`backend/internal/chat/service.go:473`](../backend/internal/chat/service.go#L473) | `Typing` — check membership, publish, store nothing |
+| [`backend/internal/realtime/handler.go:142`](../backend/internal/realtime/handler.go#L142) | `read` — the client-frame loop and its rate limit |
+| [`backend/internal/realtime/bucket.go:21`](../backend/internal/realtime/bucket.go#L21) | the token bucket |
+| [`backend/internal/chat/service.go:430`](../backend/internal/chat/service.go#L430) | `MarkRead` — one write, one event per member |
+| [`web/src/realtime/typing.ts:21`](../web/src/realtime/typing.ts#L21) | typing entries that expire on their own |
+| [`web/src/chat/receipts.ts:6`](../web/src/chat/receipts.ts#L6) | ✓/✓✓ and "Seen by N" derived from `last_read_seq` |
+
+### Gotchas
+
+- Rate limits on *temporary* events can be strict, but not so strict that normal use trips
+  them: test the "send, then immediately type again" path.
+- Fan-out cost grows with group size squared for reads. If it ever matters: batch read events,
+  or send receipts only to the message's sender.
+
+### Go deeper
+
+- *Designing Data-Intensive Applications*, ch. 11 (stream processing) — events vs state
+- WhatsApp/Slack engineering posts on typing indicators and read receipts at scale
+
+### Interview angle
+
+- "Design typing indicators" → ephemeral, best-effort, throttled, never persisted.
+- "Read receipts in a 1,000-person group?" → amplification; aggregate counts, lazy fetch, or receipts only to the sender.
+
+---
+
+## 9. Metrics: RED, USE and label cardinality
+
+*Came up in Part 2.4 — what to measure, and how not to break Prometheus.*
+
+### What it is
+
+Two checklists cover almost everything:
+
+| Method | For | Measure |
+|---|---|---|
+| **RED** | every service / endpoint | **R**ate (req/s), **E**rrors (failures/s), **D**uration (latency histogram) |
+| **USE** | every resource (CPU, pool, queue) | **U**tilisation, **S**aturation (waiting), **E**rrors |
+
+A **histogram** counts requests into latency buckets (≤ 5 ms, ≤ 10 ms, …); Prometheus computes
+p95/p99 from the buckets at query time — averages hide the slow tail.
+
+**Cardinality** = the number of distinct label combinations. Each one is a separate time series
+held in memory. A label like `path="/api/chats/8121"` makes a new series per chat; 100k chats ×
+13 buckets × methods… and Prometheus runs out of memory.
+
+### What we chose
+
+- RED per route **pattern** (`/api/chats/{id}`, taken from Go's `ServeMux`), never the raw path;
+  unmatched routes become `"unmatched"`.
+- USE for the DB pool (in use / idle / max, waits) and the bcrypt bulkhead (slots in use, queue wait).
+- WebSocket gauges and per-type event counters; Go runtime and process metrics for free.
+- `/metrics` on a private port that only Prometheus (inside Docker) can reach.
+
+### In our code
+
+| Code | What it does |
+|---|---|
+| [`backend/internal/metrics/metrics.go:85`](../backend/internal/metrics/metrics.go#L85) | `ObserveHTTP` — the RED metrics |
+| [`backend/internal/httpx/middleware.go:82`](../backend/internal/httpx/middleware.go#L82) | `Route` — records the mux pattern, innermost wins |
+| [`backend/internal/httpx/middleware.go:38`](../backend/internal/httpx/middleware.go#L38) | `Log` — request ID, one log line, metrics |
+| [`backend/internal/metrics/metrics.go:124`](../backend/internal/metrics/metrics.go#L124) | the DB pool, read fresh on every scrape |
+| [`backend/internal/app/metrics_test.go:21`](../backend/internal/app/metrics_test.go#L21) | a test that no raw path leaks into a label |
+| [`deploy/monitoring/prometheus/prometheus.yml:9`](../deploy/monitoring/prometheus/prometheus.yml#L9) | what Prometheus scrapes |
+
+**See it yourself:** `make up-full-monitoring`, open http://localhost:3000, use the app, watch
+"Relay — overview". Explore → Prometheus: `histogram_quantile(0.95, sum by (le, route) (rate(http_request_duration_seconds_bucket[5m])))`.
+
+### Gotchas
+
+- Never put ids, emails or free text in labels; put them in **logs** (with the request ID).
+- `rate()` needs a range at least ~4× the scrape interval (`[1m]` for 15 s scrapes).
+- A WebSocket "request" lasts hours — keep it out of latency histograms.
+- p95 of averages ≠ average of p95s: aggregate buckets (`sum by (le)`) *then* take the quantile.
+
+### Go deeper
+
+- Brendan Gregg, *The USE Method*; Tom Wilkie, *The RED Method*
+- Prometheus docs: *Histograms and summaries*, *Naming practices*
+- Google SRE book, ch. 6 *Monitoring Distributed Systems* (the four golden signals)
+
+### Interview angle
+
+- "How do you know your service is healthy?" → golden signals / RED, SLOs on p95/p99.
+- "Prometheus is using 20 GB of RAM" → cardinality explosion; find the label.
+
+---
+
+## 10. Object storage & presigned uploads
+
+*Came up in Part 2.2 — profile pictures. Decision: [ADR 0004](adr/0004-object-storage-uploads.md).*
+
+### What it is
+
+**Object storage** (S3 and compatibles) stores blobs under keys in buckets, over HTTP. No
+folders, no partial updates — put, get, delete whole objects — which is what makes it cheap,
+durable (S3: 11 nines) and endlessly scalable.
+
+A **presigned request** is permission in a URL: the server signs "PUT this key, valid 5 minutes"
+with its credentials; anyone holding it can do exactly that, nothing more. A **presigned POST
+policy** goes further: it's a signed JSON document of *conditions* — key, content type,
+`content-length-range` — that S3 checks against the upload.
+
+### Why it matters
+
+Uploads through the API cost our CPU, memory and a request slot per byte; files in the database
+bloat every backup. Direct-to-storage uploads take the API out of the data path completely.
+
+### What we chose
+
+Browser shrinks the picture → asks the API for a POST policy (≤ 1 MiB, JPEG/PNG/WebP, one random
+key) → posts straight to storage → asks the API to confirm, which checks what's actually there.
+Pictures are served by the API under `/media/` with immutable caching. In AWS the API signs with
+the instance role's temporary credentials — no access keys anywhere.
+
+### In our code
+
+| Code | What it does |
+|---|---|
+| [`backend/internal/storage/storage.go:93`](../backend/internal/storage/storage.go#L93) | `PresignUpload` — the policy and its conditions |
+| [`web/src/profile/avatar.ts:14`](../web/src/profile/avatar.ts#L14) | resize in a `<canvas>` |
+| [`web/src/profile/avatar.ts:27`](../web/src/profile/avatar.ts#L27) | the form: policy fields first, file **last** |
+| [`backend/internal/users/avatar.go:79`](../backend/internal/users/avatar.go#L79) | `confirm` — trust storage, not the client |
+| [`backend/internal/users/avatar.go:140`](../backend/internal/users/avatar.go#L140) | `serve` — ETag, immutable cache, `nosniff` |
+| [`backend/internal/users/store.go:184`](../backend/internal/users/store.go#L184) | `SetAvatar` — swap keys atomically, return the old one |
+| [`deploy/terraform/storage.tf:39`](../deploy/terraform/storage.tf#L39) | the bucket's CORS rule: only our origin may POST |
+| [`deploy/terraform/iam.tf:17`](../deploy/terraform/iam.tf#L17) | the role's policy: `avatars/*` in one bucket |
+
+### Gotchas
+
+- A presigned **PUT** can't limit size; POST policies can.
+- In a multipart S3 upload the **file must be the last field** — fields after it are ignored.
+- Serving user uploads from your own origin is an XSS risk: never accept SVG/HTML, always `nosniff`.
+- Presigned URLs signed with temporary credentials die when those credentials expire.
+- Postgres: a `FOR UPDATE` CTE referenced only in `RETURNING` runs *after* the update and skips the
+  row it changed — join it in `FROM` (found while writing `SetAvatar`).
+
+### Go deeper
+
+- AWS docs: *Browser-based uploads using POST (AWS Signature Version 4)*
+- *Designing Data-Intensive Applications*, ch. 3 (storage engines) for why blobs and rows differ
+
+### Interview angle
+
+- "Design image upload for Instagram" → presigned direct-to-S3, async processing, CDN, immutable keys.
+- "Why not store images in the database?" → backups, cache pressure, cost per GB, throughput.
+
+---
+
+## 11. One server on the internet: VPC, firewall, IAM, TLS
+
+*Came up in Part 2.3 — the first AWS deploy. Decision: [ADR 0005](adr/0005-single-instance-deploy.md), runbook: [deploy/README.md](../deploy/README.md).*
+
+### What it is
+
+| Piece | One-line meaning |
+|---|---|
+| **VPC** | your private network in AWS (here 10.0.0.0/16) |
+| **Subnet** | a slice of it in one availability zone; *public* = its route table points 0.0.0.0/0 at an internet gateway |
+| **Security group** | a stateful firewall on the instance: list what may come in |
+| **Elastic IP** | a public IPv4 that stays yours across stop/start |
+| **IAM role** | an identity for the instance; code on it gets short-lived credentials from the metadata service |
+| **DNS A record** | name → IP; `1-2-3-4.sslip.io` is a free service that answers with the IP in the name |
+| **TLS (HTTPS)** | encryption + proof the server owns the name; Let's Encrypt issues free 90-day certificates via the ACME protocol, Caddy renews them |
+
+### Why it matters
+
+Each line is a door. Get one wrong and you're either unreachable (missing route, closed port)
+or exposed (SSH open to the world, credentials in a file, a public bucket).
+
+### What we chose
+
+443/80 from anywhere, 22 from your IP only; no NAT gateway; IMDSv2 with hop limit 2; an IAM role
+instead of keys; Caddy for TLS; `cpu_credits = "standard"` and a zero-spend budget so mistakes
+show up as slowness or an e-mail, not a bill.
+
+### In our code
+
+| Code | What it does |
+|---|---|
+| [`deploy/terraform/network.tf:28`](../deploy/terraform/network.tf#L28) | the route that makes the subnet public |
+| [`deploy/terraform/security.tf:8`](../deploy/terraform/security.tf#L8) | SSH from your IP only |
+| [`deploy/terraform/instance.tf:28`](../deploy/terraform/instance.tf#L28) | standard CPU credits — throttle, don't bill |
+| [`deploy/terraform/instance.tf:36`](../deploy/terraform/instance.tf#L36) | IMDSv2 + hop limit 2 |
+| [`deploy/terraform/instance.tf:64`](../deploy/terraform/instance.tf#L64) | the free sslip.io name |
+| [`deploy/terraform/budget.tf:3`](../deploy/terraform/budget.tf#L3) | the zero-spend alert |
+| [`web/Caddyfile.prod:8`](../web/Caddyfile.prod#L8) | automatic HTTPS for `{$DOMAIN}` |
+| [`web/Caddyfile.prod:15`](../web/Caddyfile.prod#L15) | Content-Security-Policy and friends |
+| [`scripts/deploy.sh:50`](../scripts/deploy.sh#L50) | shipping images without a registry |
+
+### Gotchas
+
+- t3 instances default to **unlimited** CPU credits: sustained CPU above baseline is billed.
+- Containers can't reach the instance metadata service with the default hop limit of 1 → S3 403s.
+- Let's Encrypt rate-limits certificates per domain per week: keep Caddy's data volume.
+- Postgres reads `POSTGRES_PASSWORD` only when its volume is created; changing it later does nothing.
+- Every public IPv4 address is billable since 2024 (covered by the free tier's 750 h, i.e. one).
+
+### Go deeper
+
+- AWS docs: *How Amazon VPC works*; *Burstable performance instances* (credits)
+- *How HTTPS works* (comic, howhttps.works); Let's Encrypt docs: *How it works*
+- Julia Evans, *Networking! ACK!* zine
+
+### Interview angle
+
+- "Walk me through what happens when I type the URL" → DNS, TCP, TLS handshake, proxy, app.
+- "How do your servers get cloud credentials?" → instance roles + metadata service, never baked-in keys; SSRF and IMDSv2.
 

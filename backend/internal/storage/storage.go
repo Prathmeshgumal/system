@@ -66,6 +66,10 @@ func New(cfg config.S3Config) (*S3, error) {
 	if err != nil {
 		return nil, fmt.Errorf("storage client: %w", err)
 	}
+	// minio-go would use S3's dual-stack (IPv6) host, bucket.s3.dualstack.<region>…,
+	// but the CSP and Terraform's outputs name bucket.s3.<region>.amazonaws.com:
+	// a different host, and the browser would refuse to upload to it.
+	c.SetS3EnableDualstack(false)
 	s := &S3{client: c, bucket: cfg.Bucket}
 	if cfg.PublicURL != "" {
 		u, err := url.Parse(cfg.PublicURL)
