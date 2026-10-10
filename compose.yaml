@@ -1,6 +1,10 @@
-# Dev mode:  `make db`      → postgres + storage (services without a profile)
+# Dev mode:   `make db`      → postgres + storage (services without a profile)
+# Monitoring: add `--profile monitoring` (Prometheus, Loki, Alloy, Grafana on 127.0.0.1:3000)
 # Full mode: `make up-full` → postgres + api + web (the "full" profile)
 name: relay
+
+include:
+  - deploy/monitoring/compose.monitoring.yaml
 
 services:
   postgres:
@@ -55,6 +59,10 @@ services:
       S3_SECRET_KEY: ${S3_SECRET_KEY}
       S3_PUBLIC_URL: /storage
       S3_CREATE_BUCKET: "true"
+      # Production-style observability (Part 2.4): JSON logs for Loki, metrics for
+      # Prometheus on a port that only the Docker network can reach.
+      LOG_FORMAT: json
+      METRICS_ADDR: ":9090"
     depends_on:
       - postgres # waits for the container to start, not to be healthy — /readyz handles the gap
     healthcheck:

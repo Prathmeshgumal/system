@@ -6,7 +6,7 @@
 export
 
 .DEFAULT_GOAL := help
-.PHONY: help db api web dev up-full down clean logs psql test e2e smoke loadtest
+.PHONY: help db api web dev up-full up-full-monitoring down clean logs psql test e2e smoke loadtest
 
 help: ## List all commands
 	@grep -hE '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-9s %s\n", $$1, $$2}'
@@ -26,14 +26,17 @@ dev: db ## Postgres + API + web together (Ctrl+C stops API and web)
 up-full: ## Build real images and run everything in containers (http://localhost:8000)
 	VERSION=$$(git rev-parse --short HEAD) docker compose --profile full up --build
 
-down: ## Stop everything (database data is kept)
-	docker compose --profile full down
+up-full-monitoring: ## Full mode + Prometheus, Loki, Grafana (http://localhost:3000)
+	VERSION=$$(git rev-parse --short HEAD) docker compose --profile full --profile monitoring up --build
 
-clean: ## Stop everything and DELETE the database volume
-	docker compose --profile full down -v
+down: ## Stop everything (database data is kept)
+	docker compose --profile full --profile monitoring down
+
+clean: ## Stop everything and DELETE all data volumes
+	docker compose --profile full --profile monitoring down -v
 
 logs: ## Follow logs of all containers
-	docker compose --profile full logs -f
+	docker compose --profile full --profile monitoring logs -f
 
 psql: ## Open a SQL shell in the database
 	docker compose exec postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB)
