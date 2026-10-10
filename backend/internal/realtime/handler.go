@@ -31,12 +31,17 @@ type Handler struct {
 	inbound   Inbound
 	pingEvery time.Duration // how often we check the client is still there
 	pongWait  time.Duration // how long it has to answer
-	minGap    time.Duration // per connection: client frames closer together than this are dropped
 }
+
+// Client frame rate limit, per connection: bursts of 5, then 2 per second.
+const (
+	frameBurst  = 5
+	framePerSec = 2
+)
 
 func NewHandler(hub *Hub, t Tickets, in Inbound) *Handler {
 	return &Handler{hub: hub, tickets: t, inbound: in,
-		pingEvery: 25 * time.Second, pongWait: 10 * time.Second, minGap: 500 * time.Millisecond}
+		pingEvery: 25 * time.Second, pongWait: 10 * time.Second}
 }
 
 // clientFrame is the only shape clients may send: {"type":"typing","chat_id":7}.
@@ -131,20 +136,19 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// read handles frames from one client until the connection ends. Frames
-// arriving faster than minGap are dropped: a typing indicator doesn't need
-// more, and a misbehaving client can't make us query the database in a loop.
+// read handles frames from one client until the connection ends. Frames over
+// the rate limit are dropped: a typing indicator doesn't need more, and a
+// misbehaving client can't make us query the database in a loop.
 func (h *Handler) read(ctx context.Context, conn *websocket.Conn, userID int64) {
-	var last time.Time
+	limit := newBucket(frameBurst, framePerSec)
 	for {
 		typ, b, err := conn.Read(ctx)
 		if err != nil {
 			return // closed, or read limit exceeded
 		}
-		if typ != websocket.MessageText || time.Since(last) < h.minGap {
+		if typ != websocket.MessageText || !limit.allow(time.Now()) {
 			continue
 		}
-		last = time.Now()
 		var f clientFrame
 		if json.Unmarshal(b, &f) != nil {
 			continue

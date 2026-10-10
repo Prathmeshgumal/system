@@ -1,13 +1,22 @@
 // What to do with each WebSocket event, and how to catch up after a reconnect.
 import type { QueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../lib/api'
-import type { Chat, MessagePage, ServerEvent } from '../lib/types'
+import type { Chat, Message, MessagePage, ServerEvent } from '../lib/types'
 import { applyReadToList, maxSeq, upsertMessage, type MessagesData } from '../chat/cache'
 import { keys, storeMessage } from '../chat/queries'
+import { applyMemberRead } from '../chat/receipts'
+import { typingStore } from './typing'
 
-export function handleEvent(qc: QueryClient, e: ServerEvent, me: number) {
+type Hooks = {
+  /** Called for messages from others; shows a browser notification if the tab is hidden. */
+  notify?: (m: Message) => void
+}
+
+export function handleEvent(qc: QueryClient, e: ServerEvent, me: number, hooks: Hooks = {}) {
   switch (e.type) {
     case 'message.created':
+      typingStore.clear(e.chat_id, e.message.sender_id) // their message is here: they stopped typing
+      if (e.message.sender_id !== me) hooks.notify?.(e.message)
       return storeMessage(qc, e.message, me, 'created')
     case 'message.updated':
       return storeMessage(qc, e.message, me, 'updated')
@@ -24,7 +33,12 @@ export function handleEvent(qc: QueryClient, e: ServerEvent, me: number) {
       qc.removeQueries({ queryKey: keys.messages(e.chat_id) })
       return
     case 'chat.read':
-      qc.setQueryData<Chat[]>(keys.chats, (l) => applyReadToList(l, e.chat_id, e.seq))
+      // From my own other tab: clear my unread badge. From anyone: update receipts.
+      if (e.user_id === me) qc.setQueryData<Chat[]>(keys.chats, (l) => applyReadToList(l, e.chat_id, e.seq))
+      qc.setQueryData<Chat>(keys.chat(e.chat_id), (c) => applyMemberRead(c, e.user_id, e.seq))
+      return
+    case 'typing':
+      typingStore.add(e.chat_id, e.user_id)
       return
   }
 }

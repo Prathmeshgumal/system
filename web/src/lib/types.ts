@@ -17,6 +17,17 @@ export type AuthResponse = {
   user: User
 }
 
+export type Reaction = { emoji: string; user_ids: number[] }
+
+/** The short version of a replied-to message, as it is now (edits/deletes show). */
+export type Quote = {
+  id: number
+  seq: number
+  sender: Profile | null
+  body: string
+  deleted: boolean
+}
+
 export type Message = {
   id: number
   chat_id: number
@@ -28,7 +39,13 @@ export type Message = {
   edited_at: string | null
   deleted_at: string | null
   sender: Profile | null
+  reply_to_id?: number | null
+  reply_to?: Quote | null
+  reactions?: Reaction[]
 }
+
+/** The fixed reaction set — mirrors chat.Emojis in backend/internal/chat/service.go. */
+export const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'] as const
 
 export type Member = {
   user_id: number
@@ -64,4 +81,5 @@ export type MessagePage = {
 export type ServerEvent =
   | { type: 'message.created' | 'message.updated' | 'message.deleted'; chat_id: number; message: Message }
   | { type: 'chat.created' | 'chat.updated' | 'chat.removed'; chat_id: number }
-  | { type: 'chat.read'; chat_id: number; seq: number }
+  | { type: 'chat.read'; chat_id: number; seq: number; user_id: number }
+  | { type: 'typing'; chat_id: number; user_id: number }

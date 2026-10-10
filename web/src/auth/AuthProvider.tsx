@@ -1,6 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { pendingStore } from '../chat/pending'
 import { api, refreshSession, setAccessToken, setOnSessionLost } from '../lib/api'
+import { typingStore } from '../realtime/typing'
 import type { AuthResponse, User } from '../lib/types'
 
 type AuthState = { status: 'loading' } | { status: 'out' } | { status: 'in'; user: User }
@@ -24,6 +26,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signedOut = useCallback(() => {
     setAccessToken(null)
     qc.clear() // never show the previous user's chats to the next one
+    pendingStore.clear()
+    typingStore.reset()
     setState({ status: 'out' })
   }, [qc])
 

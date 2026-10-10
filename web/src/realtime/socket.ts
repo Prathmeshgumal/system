@@ -42,6 +42,13 @@ export class RealtimeSocket {
     void this.connect()
   }
 
+  /** Sends a frame if connected; returns false if not (the caller just skips it). */
+  send(frame: unknown): boolean {
+    if (this.ws?.readyState !== 1 /* OPEN */) return false
+    this.ws.send(JSON.stringify(frame))
+    return true
+  }
+
   stop() {
     this.stopped = true
     clearTimeout(this.timer)

@@ -1,20 +1,5 @@
-import { expect, test, type Browser, type Page, type WebSocketRoute } from '@playwright/test'
-
-// Unique per run, so the tests can run against your normal dev database.
-const run = Date.now().toString(36)
-
-async function signUp(browser: Browser, name: string, before?: (p: Page) => Promise<void>): Promise<Page> {
-  const page = await (await browser.newContext()).newPage()
-  await before?.(page)
-  await page.goto('/signup')
-  await page.getByLabel('Email').fill(`${name}_${run}@example.com`)
-  await page.getByLabel('Username').fill(`${name}_${run}`)
-  await page.getByLabel('Display name').fill(`${name} ${run}`)
-  await page.getByLabel('Password').fill('password123')
-  await page.getByRole('button', { name: 'Sign up' }).click()
-  await expect(page.getByRole('status')).toHaveText('Connected') // WebSocket is up
-  return page
-}
+import { expect, test, type WebSocketRoute } from '@playwright/test'
+import { run, send, signUp, startChat } from './helpers.ts'
 
 test('a reload keeps you logged in (refresh cookie → new access token)', async ({ browser }) => {
   const page = await signUp(browser, 'gina')
@@ -27,17 +12,6 @@ test('a reload keeps you logged in (refresh cookie → new access token)', async
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Log in' })).toBeVisible() // the session is really gone
 })
-
-async function startChat(from: Page, username: string) {
-  await from.getByRole('button', { name: 'New chat' }).click()
-  await from.getByLabel('Search users').fill(username)
-  await from.getByRole('button', { name: new RegExp(`@${username}`) }).click()
-}
-
-async function send(page: Page, text: string) {
-  await page.getByLabel('Message', { exact: true }).fill(text)
-  await page.getByLabel('Message', { exact: true }).press('Enter')
-}
 
 test('two users chat live: send, unread badge, reply, edit, delete', async ({ browser }) => {
   const alice = await signUp(browser, 'alice')

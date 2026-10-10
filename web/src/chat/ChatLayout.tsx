@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, Outlet, useMatch } from 'react-router'
 import { useAuth, useMe } from '../auth/AuthProvider'
+import { notificationPermission, requestNotifications } from '../lib/notify'
+import { getTheme, nextTheme, setTheme, type Theme } from '../lib/theme'
 import { useSocketStatus } from '../realtime/RealtimeProvider'
 import { Avatar } from '../ui/Avatar'
 import { secondaryButton } from '../ui/buttons'
@@ -18,6 +20,12 @@ export function ChatLayout() {
   const profileOpen = useMatch('/profile')
   const inChat = chatOpen !== null || profileOpen !== null
 
+  // "(3) Relay" in the tab title, so unread messages show even in another tab.
+  const totalUnread = chats.data?.reduce((n, c) => n + c.unread, 0) ?? 0
+  useEffect(() => {
+    document.title = totalUnread > 0 ? `(${totalUnread}) Relay` : 'Relay'
+  }, [totalUnread])
+
   return (
     <div className="flex h-dvh bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
       <aside
@@ -31,10 +39,12 @@ export function ChatLayout() {
               <ConnectionStatus />
             </span>
           </Link>
+          <ThemeButton />
           <button onClick={() => void logout()} className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-white">
             Log out
           </button>
         </header>
+        <NotificationsPrompt />
         <div className="flex gap-2 p-3">
           <button onClick={() => setDialog('direct')} className={`${secondaryButton} flex-1`}>
             New chat
@@ -69,6 +79,39 @@ function ConnectionStatus() {
       <span className={`h-2 w-2 rounded-full ${status === 'open' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
       {label}
     </span>
+  )
+}
+
+const themeLabel: Record<Theme, string> = { system: 'Theme: Auto', light: 'Theme: Light', dark: 'Theme: Dark' }
+
+function ThemeButton() {
+  const [theme, setThemeState] = useState(getTheme)
+  return (
+    <button
+      onClick={() => {
+        const t = nextTheme[theme]
+        setTheme(t)
+        setThemeState(t)
+      }}
+      title="Theme: auto (follows your system), light or dark"
+      className="text-xs whitespace-nowrap text-zinc-500 hover:text-zinc-900 dark:hover:text-white"
+    >
+      {themeLabel[theme]}
+    </button>
+  )
+}
+
+/** Asks for notification permission — only from a click; browsers block it otherwise. */
+function NotificationsPrompt() {
+  const [perm, setPerm] = useState(notificationPermission)
+  if (perm !== 'default') return null
+  return (
+    <button
+      onClick={async () => setPerm(await requestNotifications())}
+      className="mx-3 mt-3 rounded-lg bg-sky-50 px-3 py-2 text-left text-sm text-sky-800 hover:bg-sky-100 dark:bg-sky-950 dark:text-sky-200"
+    >
+      🔔 Turn on notifications for new messages while Relay is in the background
+    </button>
   )
 }
 

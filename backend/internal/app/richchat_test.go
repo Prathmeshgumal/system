@@ -142,7 +142,6 @@ func TestTyping_RelayedToOthersOnly(t *testing.T) {
 		t.Errorf("bob got %+v", e)
 	}
 	// Eve isn't in the chat; typing into it is ignored, and she hears nothing.
-	time.Sleep(600 * time.Millisecond) // past the per-connection rate limit
 	typing(eveWS, c.ID)
 	expectNothing(t, aliceWS, "the sender's own socket")
 	expectNothing(t, eveWS, "an outsider")
@@ -160,8 +159,10 @@ func TestTyping_RateLimitedPerConnection(t *testing.T) {
 	for range 20 {
 		_ = aliceWS.Write(context.Background(), websocket.MessageText, frame)
 	}
-	next(t, bobWS) // the first one gets through…
-	expectNothing(t, bobWS, "19 more typing events in the same instant")
+	for range 5 {
+		next(t, bobWS) // the burst gets through…
+	}
+	expectNothing(t, bobWS, "15 more typing events in the same instant")
 }
 
 func expectNothing(t *testing.T, ws *websocket.Conn, what string) {
@@ -171,4 +172,49 @@ func expectNothing(t *testing.T, ws *websocket.Conn, what string) {
 	if _, b, err := ws.Read(ctx); err == nil {
 		t.Errorf("%s: got %s, want nothing", what, b)
 	}
+}
+
+func TestTyping_LaterFramesStillRelayed(t *testing.T) {
+	srv := newServer(t)
+	alice := newClient(t, srv).signup("alice")
+	bob := newClient(t, srv).signup("bob")
+	c := alice.direct(bob)
+	aliceWS, bobWS := alice.connect(), bob.connect()
+
+	frame := []byte(fmt.Sprintf(`{"type":"typing","chat_id":%d}`, c.ID))
+	for i := range 3 {
+		if err := aliceWS.Write(context.Background(), websocket.MessageText, frame); err != nil {
+			t.Fatal(err)
+		}
+		if e := next(t, bobWS); e.Type != "typing" {
+			t.Fatalf("frame %d: bob got %+v", i, e)
+		}
+	}
+}
+
+func TestTyping_AfterMessagesInBetween(t *testing.T) {
+	srv := newServer(t)
+	alice := newClient(t, srv).signup("alice")
+	bob := newClient(t, srv).signup("bob")
+	c := alice.direct(bob)
+	aliceWS, bobWS := alice.connect(), bob.connect()
+	frame := []byte(fmt.Sprintf(`{"type":"typing","chat_id":%d}`, c.ID))
+	untilTyping := func(ws *websocket.Conn) {
+		t.Helper()
+		for range 5 {
+			if e := next(t, ws); e.Type == "typing" {
+				return
+			}
+		}
+		t.Fatal("no typing event")
+	}
+
+	_ = aliceWS.Write(context.Background(), websocket.MessageText, frame)
+	untilTyping(bobWS)
+	bob.send(c.ID, "Sure! What time?")
+	_ = bobWS.Write(context.Background(), websocket.MessageText, frame)
+	untilTyping(aliceWS)
+	// Alice types again right away (she just sent a message): must not be dropped.
+	_ = aliceWS.Write(context.Background(), websocket.MessageText, frame)
+	untilTyping(bobWS)
 }

@@ -4,6 +4,10 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { AuthProvider } from './auth/AuthProvider'
+import { applyTheme, watchSystemTheme } from './lib/theme'
+
+applyTheme()
+watchSystemTheme()
 
 const queryClient = new QueryClient({
   defaultOptions: {

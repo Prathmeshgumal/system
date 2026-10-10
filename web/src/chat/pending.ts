@@ -8,6 +8,7 @@ export type Pending = {
   chat_id: number
   body: string
   status: 'sending' | 'failed'
+  reply_to_id?: number
 }
 
 let pending: Pending[] = []

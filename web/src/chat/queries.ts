@@ -73,13 +73,13 @@ export function storeMessage(qc: QueryClient, m: Message, me: number, kind: 'cre
 /** Sends with an optimistic placeholder. Retrying reuses the client_id, so it can't duplicate. */
 export function useSend(chatId: number, me: number) {
   const qc = useQueryClient()
-  return async (body: string, clientId = uuid()) => {
+  return async (body: string, clientId = uuid(), replyToId?: number) => {
     pendingStore.remove(clientId)
-    pendingStore.add({ client_id: clientId, chat_id: chatId, body, status: 'sending' })
+    pendingStore.add({ client_id: clientId, chat_id: chatId, body, status: 'sending', reply_to_id: replyToId })
     try {
       const m = await api<Message>(`/api/chats/${chatId}/messages`, {
         method: 'POST',
-        body: { body, client_id: clientId },
+        body: { body, client_id: clientId, reply_to_id: replyToId },
       })
       storeMessage(qc, m, me, 'created')
     } catch {
@@ -102,6 +102,16 @@ export function useDeleteMessage(me: number) {
   return useMutation({
     mutationFn: (id: number) => api<Message>(`/api/messages/${id}`, { method: 'DELETE' }),
     onSuccess: (m) => storeMessage(qc, m, me, 'deleted'),
+  })
+}
+
+/** Adds (on) or removes my emoji; the server answers with the updated message. */
+export function useReact(me: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, emoji, on }: { id: number; emoji: string; on: boolean }) =>
+      api<Message>(`/api/messages/${id}/reactions/${encodeURIComponent(emoji)}`, { method: on ? 'PUT' : 'DELETE' }),
+    onSuccess: (m) => storeMessage(qc, m, me, 'updated'),
   })
 }
 

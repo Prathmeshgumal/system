@@ -3,13 +3,28 @@ import { Link, useParams } from 'react-router'
 import { useMe } from '../auth/AuthProvider'
 import { ApiError } from '../lib/api'
 import { chatTitle } from '../lib/format'
+import type { Chat, Message } from '../lib/types'
+import { useRealtime } from '../realtime/RealtimeProvider'
+import { useTypers } from '../realtime/typing'
 import { Avatar } from '../ui/Avatar'
 import { allMessages, maxSeq } from './cache'
 import { Composer } from './Composer'
 import { GroupInfo } from './GroupInfo'
 import { MessageList } from './MessageList'
 import { usePending } from './pending'
-import { useChat, useChats, useDeleteMessage, useEditMessage, useMarkRead, useMessages, useSend } from './queries'
+import {
+  useChat,
+  useChats,
+  useDeleteMessage,
+  useEditMessage,
+  useMarkRead,
+  useMessages,
+  useReact,
+  useSend,
+} from './queries'
+
+/** Typing events go out at most this often while someone keeps typing. */
+const TYPING_EVERY_MS = 3000
 
 export function ChatView() {
   const id = Number(useParams().chatId)
@@ -26,6 +41,11 @@ function ChatViewInner({ id }: { id: number }) {
   const edit = useEditMessage(me.id)
   const del = useDeleteMessage(me.id)
   const markRead = useMarkRead()
+  const react = useReact(me.id)
+  const realtime = useRealtime()
+  const typers = useTypers(id)
+  const lastTyping = useRef(0)
+  const [replyTo, setReplyTo] = useState<Message | null>(null)
   const listEntry = useChats().data?.find((c) => c.id === id)
   const visible = useDocumentVisible()
   const [showInfo, setShowInfo] = useState(false)
@@ -83,22 +103,57 @@ function ChatViewInner({ id }: { id: number }) {
           <div className="flex flex-1 items-center justify-center text-zinc-500">Loading messages…</div>
         ) : (
           <MessageList
+            chat={c}
             messages={allMessages(messages.data)}
             pending={pending}
             me={me.id}
-            isGroup={c.kind === 'group'}
             hasOlder={messages.hasNextPage}
             loadingOlder={messages.isFetchingNextPage}
             loadOlder={() => void messages.fetchNextPage()}
             onEdit={(mid, body) => edit.mutate({ id: mid, body })}
             onDelete={(mid) => del.mutate(mid)}
-            onRetry={(p) => void send(p.body, p.client_id)}
+            onRetry={(p) => void send(p.body, p.client_id, p.reply_to_id)}
+            onReply={setReplyTo}
+            onReact={(m, emoji, on) => react.mutate({ id: m.id, emoji, on })}
           />
         )}
-        <Composer onSend={(body) => void send(body)} />
+        <TypingLine chat={c} typers={typers} />
+        <Composer
+          replyTo={replyTo}
+          onCancelReply={() => setReplyTo(null)}
+          onSend={(body) => {
+            void send(body, undefined, replyTo?.id)
+            setReplyTo(null)
+            lastTyping.current = 0 // the next keystroke may announce typing again right away
+          }}
+          onTyping={() => {
+            const now = Date.now()
+            if (now - lastTyping.current < TYPING_EVERY_MS) return
+            lastTyping.current = now
+            realtime.send({ type: 'typing', chat_id: id })
+          }}
+        />
       </section>
       {showInfo && c.kind === 'group' && <GroupInfo chat={c} onClose={() => setShowInfo(false)} />}
     </div>
+  )
+}
+
+/** "Alice is typing…" — names come from the chat's member list. */
+function TypingLine({ chat, typers }: { chat: Chat; typers: readonly number[] }) {
+  const names = typers.map((id) => chat.members?.find((m) => m.user_id === id)?.user.display_name ?? 'Someone')
+  const text =
+    names.length === 0
+      ? ''
+      : names.length === 1
+        ? `${names[0]} is typing…`
+        : names.length === 2
+          ? `${names[0]} and ${names[1]} are typing…`
+          : 'Several people are typing…'
+  return (
+    <p aria-live="polite" className="h-5 px-4 text-xs text-zinc-500 italic">
+      {text}
+    </p>
   )
 }
 

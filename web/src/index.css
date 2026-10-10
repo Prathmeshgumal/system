@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* dark: variants follow the .dark class on <html> (set from the theme toggle), not only the OS. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* Variables used by the Part 0.1 status page (status/StatusPage.css). */
 :root {
   --bg: #f6f6f8;
@@ -15,14 +18,12 @@
   background: var(--bg);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #131217;
-    --card: #1c1b22;
-    --text: #ecebf0;
-    --muted: #9a97a8;
-    --border: #2d2b36;
-  }
+:root.dark {
+  --bg: #131217;
+  --card: #1c1b22;
+  --text: #ecebf0;
+  --muted: #9a97a8;
+  --border: #2d2b36;
 }
 
 body {
