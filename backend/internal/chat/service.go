@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"relay/internal/metrics"
 	"relay/internal/users"
 )
 
@@ -55,6 +56,9 @@ const (
 	EventChatRead       = "chat.read"
 	EventTyping         = "typing" // temporary: relayed, never stored
 )
+
+// Kind labels the event in metrics (ws_events_sent_total{type=…}).
+func (e Event) Kind() string { return e.Type }
 
 type MessageView struct {
 	Message
@@ -378,6 +382,7 @@ func (s *Service) Send(ctx context.Context, me, chatID int64, body, clientID str
 	// Only after COMMIT (store.Send has returned): never announce a message
 	// that could still roll back. A retry doesn't announce it twice.
 	if created {
+		metrics.MessageSent()
 		s.publishToMembers(ctx, chatID, Event{Type: EventMessageCreated, ChatID: chatID, Message: &v})
 	}
 	return v, created, nil

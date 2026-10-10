@@ -8,6 +8,9 @@ const userIDKey ctxKey = iota
 
 // WithUserID records who is calling. Set by the auth middleware.
 func WithUserID(ctx context.Context, id int64) context.Context {
+	if i := InfoFrom(ctx); i != nil {
+		i.UserID = id // so the request log line says who it was
+	}
 	return context.WithValue(ctx, userIDKey, id)
 }
 

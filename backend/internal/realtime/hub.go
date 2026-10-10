@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"sync"
+
+	"relay/internal/metrics"
 )
 
 // outboxSize is how many events may wait for one connection. A healthy client
@@ -52,6 +54,7 @@ func (h *Hub) Register(userID int64) *Client {
 	}
 	h.conns[userID][c] = struct{}{}
 	h.count++
+	metrics.WSConnected()
 	return c
 }
 
@@ -72,6 +75,7 @@ func (h *Hub) remove(c *Client) {
 		delete(h.conns, c.userID)
 	}
 	h.count--
+	metrics.WSDisconnected()
 }
 
 // Publish sends event to every connection of every user in userIDs.
@@ -83,16 +87,22 @@ func (h *Hub) Publish(userIDs []int64, event any) {
 		slog.Error("encode event", "err", err)
 		return
 	}
+	kind := "other"
+	if k, ok := event.(interface{ Kind() string }); ok {
+		kind = k.Kind()
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, id := range userIDs {
 		for c := range h.conns[id] {
 			select {
 			case c.send <- b:
+				metrics.WSEventSent(kind)
 			default:
 				slog.Warn("websocket client too slow, disconnecting", "user_id", id)
 				h.remove(c)
 				c.kick(ReasonTooSlow)
+				metrics.WSDropped(ReasonTooSlow)
 			}
 		}
 	}

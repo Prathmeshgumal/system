@@ -20,6 +20,7 @@ import (
 	"relay/internal/config"
 	"relay/internal/db"
 	"relay/internal/health"
+	"relay/internal/metrics"
 	"relay/internal/storage"
 )
 
@@ -48,6 +49,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	setupLogging(cfg.LogFormat)
 
 	// ctx is cancelled on Ctrl+C (SIGINT) or `docker stop` (SIGTERM).
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -75,6 +77,10 @@ func run() error {
 
 	if cfg.PprofAddr != "" {
 		go servePprof(cfg.PprofAddr)
+	}
+	if cfg.MetricsAddr != "" {
+		metrics.WatchPool(pool)
+		go serveMetrics(cfg.MetricsAddr)
 	}
 
 	// Go's zero-value http.Server has no timeouts, so a slow client could hold
@@ -111,6 +117,27 @@ func run() error {
 	}
 	slog.Info("stopped cleanly")
 	return nil
+}
+
+// setupLogging: "text" for people (dev), "json" for machines (production:
+// Loki parses each line, so you can filter by request_id, status, route…).
+func setupLogging(format string) {
+	var h slog.Handler = slog.NewTextHandler(os.Stdout, nil)
+	if format == "json" {
+		h = slog.NewJSONHandler(os.Stdout, nil)
+	}
+	slog.SetDefault(slog.New(h))
+}
+
+// serveMetrics exposes /metrics for Prometheus on a private address (e.g. :9090
+// inside the Docker network). Caddy doesn't route to it, so it's never public.
+func serveMetrics(addr string) {
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", metrics.Handler())
+	slog.Info("metrics listening", "addr", addr)
+	if err := http.ListenAndServe(addr, mux); err != nil {
+		slog.Error("metrics stopped", "err", err)
+	}
 }
 
 // servePprof exposes Go's profiler on its own private address (e.g.

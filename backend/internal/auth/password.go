@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"relay/internal/metrics"
 )
 
 // ErrBusy means too many logins are queued for hashing; the client should retry shortly.
@@ -89,6 +91,7 @@ func (h *Hasher) VerifyNobody(ctx context.Context, password string) error {
 
 // inSlot waits for a free slot (at most maxWait), runs fn, and frees the slot.
 func (h *Hasher) inSlot(ctx context.Context, fn func() error) error {
+	queued := time.Now()
 	wait := time.NewTimer(h.maxWait)
 	defer wait.Stop()
 	select {
@@ -98,6 +101,10 @@ func (h *Hasher) inSlot(ctx context.Context, fn func() error) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	defer func() { <-h.slots }()
+	metrics.HashStarted(time.Since(queued))
+	defer func() {
+		<-h.slots
+		metrics.HashFinished()
+	}()
 	return fn()
 }

@@ -24,6 +24,8 @@ type Error struct {
 	Code    string            `json:"code"`
 	Message string            `json:"message"`
 	Fields  map[string]string `json:"fields,omitempty"`
+	// RequestID is filled in by WriteError, so users can quote it in a bug report.
+	RequestID string `json:"request_id,omitempty"`
 }
 
 func (e *Error) Error() string { return fmt.Sprintf("%d %s: %s", e.Status, e.Code, e.Message) }
@@ -77,10 +79,14 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	var he *Error
 	if !errors.As(err, &he) {
-		slog.Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)
+		Logger(r.Context()).Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)
 		he = NewError(http.StatusInternalServerError, "internal", "something went wrong")
 	}
-	WriteJSON(w, he.Status, map[string]*Error{"error": he})
+	body := *he // a copy: package-level *Error values are shared between requests
+	if i := InfoFrom(r.Context()); i != nil {
+		body.RequestID = i.ID
+	}
+	WriteJSON(w, he.Status, map[string]*Error{"error": &body})
 }
 
 func WriteJSON(w http.ResponseWriter, code int, v any) {

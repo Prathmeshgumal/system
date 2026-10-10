@@ -50,9 +50,10 @@ func New(cfg config.Config, pool *pgxpool.Pool, version string, files storage.St
 	avatars.RegisterPrivate(private)
 	chat.NewHandler(chats).Register(private)
 	ws.RegisterPrivate(private)
-	mux.Handle("/api/", tokens.RequireUser(private))
+	mux.Handle("/api/", tokens.RequireUser(httpx.Route(private)))
 
-	return &App{Handler: httpx.Recover(httpx.Log(mux)), Hub: hub}
+	// Outermost first: Log (request ID, log line, metrics) → Recover → routes.
+	return &App{Handler: httpx.Log(httpx.Recover(httpx.Route(mux))), Hub: hub}
 }
 
 // hashSlots: how many bcrypt hashes may run at once. One core stays free for
