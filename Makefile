@@ -6,7 +6,7 @@
 export
 
 .DEFAULT_GOAL := help
-.PHONY: help db api web dev up-full up-full-monitoring down clean logs psql test e2e smoke loadtest
+.PHONY: help db api web dev up-full up-full-monitoring deploy down clean logs psql test e2e smoke loadtest
 
 help: ## List all commands
 	@grep -hE '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-9s %s\n", $$1, $$2}'
@@ -47,6 +47,9 @@ test: ## Run backend (unit + integration, needs `make db`) and frontend tests
 
 e2e: ## Browser tests: two users chatting (starts API + Vite unless running)
 	cd web && pnpm exec playwright test
+
+deploy: ## Build, ship and start on the server in deploy/.env.prod (RELEASE=<sha> to roll back)
+	./scripts/deploy.sh
 
 smoke: ## End-to-end check of full mode
 	./scripts/smoke.sh

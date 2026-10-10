@@ -1,0 +1,8 @@
+# Imported by Caddyfile.prod when RustFS runs on this server (compose.storage.yaml):
+# browsers upload pictures to /storage/…, forwarded to RustFS.
+handle_path /storage/* {
+	request_body {
+		max_size 2MB
+	}
+	reverse_proxy storage:9000
+}

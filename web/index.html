@@ -5,14 +5,8 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Relay</title>
-    <script>
-      // Apply the saved theme before anything paints (see src/lib/theme.ts).
-      try {
-        var t = localStorage.getItem('relay-theme')
-        var dark = t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
-        if (dark) document.documentElement.classList.add('dark')
-      } catch (e) {}
-    </script>
+    <!-- Not a module and not deferred: runs before the first paint, so dark mode never flashes white. -->
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

@@ -8,6 +8,7 @@
 .env
 .env.*
 !.env.example
+!.env.prod.example
 *.pem
 
 # Go
@@ -32,3 +33,5 @@ node_modules/
 /loadtest/results/
 /web/test-results/
 /web/playwright-report/
+
+# Deploy secrets and Terraform state stay on your machine (.env.prod is covered by .env.* above)

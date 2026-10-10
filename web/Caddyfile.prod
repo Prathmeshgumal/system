@@ -1,0 +1,40 @@
+# Production reverse proxy (Part 2.3). Same routes as full mode (Caddyfile),
+# plus automatic HTTPS: Caddy gets and renews a Let's Encrypt certificate for
+# {$DOMAIN} by itself, and redirects http:// to https://.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		# Browsers must use HTTPS for this site for a year (no downgrade attacks).
+		Strict-Transport-Security "max-age=31536000"
+		# Only our own scripts; uploads may go to the storage bucket; nobody may frame us.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' {$S3_UPLOAD_ORIGIN}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	handle /api/* {
+		reverse_proxy api:8080
+	}
+	handle /ws {
+		reverse_proxy api:8080
+	}
+	handle /media/* {
+		reverse_proxy api:8080
+	}
+
+	# Optional extra routes, e.g. /storage when RustFS runs on this server
+	# (deploy/compose.storage.yaml mounts it). No file there = no extra routes.
+	import /etc/caddy/extra/*.caddy
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
