@@ -5,6 +5,7 @@ package app
 
 import (
 	"net/http"
+	"runtime"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -35,7 +36,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, version string) *App {
 	// Public: health, logging in, and the WebSocket (it checks its own ticket).
 	health.NewHandler(health.NewChecker(pool, time.Second), version, time.Now()).Register(mux)
 	auth.NewHandler(userStore, auth.NewSessions(pool, cfg.RefreshTTL), tokens,
-		auth.NewHasher(cfg.BcryptCost), cfg.CookieSecure).Register(mux)
+		auth.NewHasher(cfg.BcryptCost, hashSlots()), cfg.CookieSecure).Register(mux)
 	ws.RegisterPublic(mux)
 
 	// Everything else under /api needs an access token. Go's mux picks the most
@@ -47,4 +48,11 @@ func New(cfg config.Config, pool *pgxpool.Pool, version string) *App {
 	mux.Handle("/api/", tokens.RequireUser(private))
 
 	return &App{Handler: httpx.Recover(httpx.Log(mux)), Hub: hub}
+}
+
+// hashSlots: how many bcrypt hashes may run at once. One core stays free for
+// everything else, so a burst of logins can't stall chat (Part 1.4).
+// GOMAXPROCS, not NumCPU: it respects container CPU limits.
+func hashSlots() int {
+	return max(1, runtime.GOMAXPROCS(0)-1)
 }

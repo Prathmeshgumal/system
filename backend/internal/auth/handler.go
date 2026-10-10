@@ -69,9 +69,9 @@ func (h *Handler) signup(w http.ResponseWriter, r *http.Request) error {
 		return httpx.Invalid(fields)
 	}
 
-	hash, err := h.hasher.Hash(in.Password)
+	hash, err := h.hasher.Hash(r.Context(), in.Password)
 	if err != nil {
-		return err
+		return busyErr(w, err)
 	}
 	u, err := h.users.Create(r.Context(), users.NewUser{
 		Email: email, Username: username, DisplayName: name, PasswordHash: hash,
@@ -102,18 +102,26 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) error {
 
 	email, msg := users.NormalizeEmail(in.Email)
 	if msg != "" {
-		h.hasher.VerifyNobody(in.Password)
+		if err := h.hasher.VerifyNobody(r.Context(), in.Password); err != nil {
+			return busyErr(w, err)
+		}
 		return bad
 	}
 	u, err := h.users.GetByEmail(r.Context(), email)
 	if errors.Is(err, users.ErrNotFound) {
-		h.hasher.VerifyNobody(in.Password)
+		if err := h.hasher.VerifyNobody(r.Context(), in.Password); err != nil {
+			return busyErr(w, err)
+		}
 		return bad
 	}
 	if err != nil {
 		return err
 	}
-	if !h.hasher.Verify(u.PasswordHash, in.Password) {
+	ok, err := h.hasher.Verify(r.Context(), u.PasswordHash, in.Password)
+	if err != nil {
+		return busyErr(w, err)
+	}
+	if !ok {
 		return bad
 	}
 	return h.startSession(w, r, u, http.StatusOK)
@@ -202,6 +210,15 @@ func checkOrigin(r *http.Request) error {
 		return httpx.Forbidden("cross-origin request rejected")
 	}
 	return nil
+}
+
+// busyErr turns ErrBusy into a 503 that tells the client when to retry.
+func busyErr(w http.ResponseWriter, err error) error {
+	if errors.Is(err, ErrBusy) {
+		w.Header().Set("Retry-After", "2")
+		return httpx.NewError(http.StatusServiceUnavailable, "busy", "too many logins right now, try again in a moment")
+	}
+	return err
 }
 
 func addField(fields map[string]string, name, msg string) {

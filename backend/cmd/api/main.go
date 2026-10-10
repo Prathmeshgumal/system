@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -67,6 +68,10 @@ func run() error {
 
 	a := app.New(cfg, pool, version)
 
+	if cfg.PprofAddr != "" {
+		go servePprof(cfg.PprofAddr)
+	}
+
 	// Go's zero-value http.Server has no timeouts, so a slow client could hold
 	// a connection open forever (slowloris). Set them explicitly.
 	srv := &http.Server{
@@ -101,6 +106,24 @@ func run() error {
 	}
 	slog.Info("stopped cleanly")
 	return nil
+}
+
+// servePprof exposes Go's profiler on its own private address (e.g.
+// 127.0.0.1:6060) — never on the public port: profiles reveal internals and
+// collecting one costs CPU. Part 1.4 uses it to find the first bottleneck:
+//
+//	go tool pprof -http=:7070 http://127.0.0.1:6060/debug/pprof/profile?seconds=30
+func servePprof(addr string) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", pprof.Index) // also serves heap, goroutine, block, mutex…
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	slog.Info("pprof listening", "addr", addr)
+	if err := http.ListenAndServe(addr, mux); err != nil {
+		slog.Error("pprof stopped", "err", err)
+	}
 }
 
 func migrateOnly() error {
