@@ -6,10 +6,10 @@
 export
 
 .DEFAULT_GOAL := help
-.PHONY: help db api web dev up-full down clean logs psql test smoke
+.PHONY: help db api web dev up-full down clean logs psql test e2e smoke loadtest
 
 help: ## List all commands
-	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-9s %s\n", $$1, $$2}'
+	@grep -hE '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-9s %s\n", $$1, $$2}'
 
 db: ## Start only Postgres in Docker
 	docker compose up -d --wait postgres
@@ -38,9 +38,16 @@ logs: ## Follow logs of all containers
 psql: ## Open a SQL shell in the database
 	docker compose exec postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB)
 
-test: ## Run backend and frontend tests
+test: ## Run backend (unit + integration, needs `make db`) and frontend tests
 	cd backend && go test ./...
 	cd web && pnpm test
 
+e2e: ## Browser tests: two users chatting (starts API + Vite unless running)
+	cd web && pnpm exec playwright test
+
 smoke: ## End-to-end check of full mode
 	./scripts/smoke.sh
+
+loadtest: ## 100 simulated users against the running API (k6, or k6 in Docker)
+	@if command -v k6 >/dev/null; then k6 run loadtest/chat.js; \
+	else docker run --rm -i --network host grafana/k6 run - < loadtest/chat.js; fi
