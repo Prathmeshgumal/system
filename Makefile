@@ -6,10 +6,10 @@
 export
 
 .DEFAULT_GOAL := help
-.PHONY: help db api web dev up-full up-full-monitoring deploy down clean logs psql test e2e smoke loadtest
+.PHONY: help db api web dev up-full up-full-monitoring deploy infra-init infra-plan infra-apply infra-destroy infra-env down clean logs psql test e2e smoke loadtest
 
 help: ## List all commands
-	@grep -hE '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-9s %s\n", $$1, $$2}'
+	@grep -hE '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-18s %s\n", $$1, $$2}'
 
 db: ## Start Postgres and object storage in Docker
 	docker compose up -d --wait postgres storage
@@ -50,6 +50,23 @@ e2e: ## Browser tests: two users chatting (starts API + Vite unless running)
 
 deploy: ## Build, ship and start on the server in deploy/.env.prod (RELEASE=<sha> to roll back)
 	./scripts/deploy.sh
+
+TF := terraform -chdir=deploy/terraform
+
+infra-init: ## AWS: download the Terraform provider (once)
+	$(TF) init
+
+infra-plan: ## AWS: show what infra-apply would create, change or delete
+	$(TF) plan
+
+infra-apply: ## AWS: create or update the server, network, bucket and budget alert
+	$(TF) apply
+
+infra-destroy: ## AWS: delete EVERYTHING Terraform created (server, data, bucket)
+	$(TF) destroy
+
+infra-env: ## AWS: print the lines to paste into deploy/.env.prod
+	@$(TF) output -raw env_prod
 
 smoke: ## End-to-end check of full mode
 	./scripts/smoke.sh
