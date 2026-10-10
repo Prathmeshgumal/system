@@ -1,0 +1,68 @@
+# Monitoring (Part 2.4): metrics, logs and dashboards, on the same box as the app.
+# Included by compose.yaml (full mode) and deploy/compose.prod.yaml; started only
+# with the "monitoring" profile:  docker compose --profile full --profile monitoring up
+#
+# Grafana listens on 127.0.0.1 only. In production you reach it through an SSH
+# tunnel (deploy/README.md) — it is never exposed to the internet.
+# Memory limits keep the whole stack inside a 1 GiB t3.micro (with swap).
+
+services:
+  prometheus:
+    profiles: [monitoring]
+    image: prom/prometheus:v3.15.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d   # a week of history…
+      - --storage.tsdb.retention.size=1GB  # …or 1 GB, whichever comes first
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    mem_limit: 256m
+    restart: unless-stopped
+
+  loki:
+    profiles: [monitoring]
+    image: grafana/loki:3.7.8
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./loki/config.yaml:/etc/loki/config.yaml:ro
+      - lokidata:/loki
+    mem_limit: 256m
+    restart: unless-stopped
+
+  # Reads every container's stdout from Docker and pushes it to Loki.
+  alloy:
+    profiles: [monitoring]
+    image: grafana/alloy:v1.20.1
+    command: ["run", "/etc/alloy/config.alloy", "--storage.path=/var/lib/alloy"]
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro # read-only: Alloy only lists containers and reads logs
+    mem_limit: 128m
+    restart: unless-stopped
+    depends_on: [loki]
+
+  grafana:
+    profiles: [monitoring]
+    image: grafana/grafana:13.2.3
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      # (no ":?required" here: Compose checks variables even for profiles that aren't started)
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/relay-overview.json
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    mem_limit: 320m # measured: ~230 MiB steady; 192 MiB got it OOM-killed at startup
+    restart: unless-stopped
+    depends_on: [prometheus, loki]
+
+volumes:
+  promdata:
+  lokidata:
+  grafanadata:

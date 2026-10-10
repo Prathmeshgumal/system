@@ -6,13 +6,13 @@
 export
 
 .DEFAULT_GOAL := help
-.PHONY: help db api web dev up-full down clean logs psql test smoke
+.PHONY: help db api web dev up-full up-full-monitoring deploy infra-init infra-plan infra-apply infra-destroy infra-env down clean logs psql test e2e smoke loadtest
 
 help: ## List all commands
-	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-9s %s\n", $$1, $$2}'
+	@grep -hE '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-18s %s\n", $$1, $$2}'
 
-db: ## Start only Postgres in Docker
-	docker compose up -d --wait postgres
+db: ## Start Postgres and object storage in Docker
+	docker compose up -d --wait postgres storage
 
 api: ## Run the Go API with live reload
 	cd backend && go tool air
@@ -26,21 +26,51 @@ dev: db ## Postgres + API + web together (Ctrl+C stops API and web)
 up-full: ## Build real images and run everything in containers (http://localhost:8000)
 	VERSION=$$(git rev-parse --short HEAD) docker compose --profile full up --build
 
-down: ## Stop everything (database data is kept)
-	docker compose --profile full down
+up-full-monitoring: ## Full mode + Prometheus, Loki, Grafana (http://localhost:3000)
+	VERSION=$$(git rev-parse --short HEAD) docker compose --profile full --profile monitoring up --build
 
-clean: ## Stop everything and DELETE the database volume
-	docker compose --profile full down -v
+down: ## Stop everything (database data is kept)
+	docker compose --profile full --profile monitoring down
+
+clean: ## Stop everything and DELETE all data volumes
+	docker compose --profile full --profile monitoring down -v
 
 logs: ## Follow logs of all containers
-	docker compose --profile full logs -f
+	docker compose --profile full --profile monitoring logs -f
 
 psql: ## Open a SQL shell in the database
 	docker compose exec postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB)
 
-test: ## Run backend and frontend tests
+test: ## Run backend (unit + integration, needs `make db`) and frontend tests
 	cd backend && go test ./...
 	cd web && pnpm test
 
+e2e: ## Browser tests: two users chatting (starts API + Vite unless running)
+	cd web && pnpm exec playwright test
+
+deploy: ## Build, ship and start on the server in deploy/.env.prod (RELEASE=<sha> to roll back)
+	./scripts/deploy.sh
+
+TF := terraform -chdir=deploy/terraform
+
+infra-init: ## AWS: download the Terraform provider (once)
+	$(TF) init
+
+infra-plan: ## AWS: show what infra-apply would create, change or delete
+	$(TF) plan
+
+infra-apply: ## AWS: create or update the server, network, bucket and budget alert
+	$(TF) apply
+
+infra-destroy: ## AWS: delete EVERYTHING Terraform created (server, data, bucket)
+	$(TF) destroy
+
+infra-env: ## AWS: print the lines to paste into deploy/.env.prod
+	@$(TF) output -raw env_prod
+
 smoke: ## End-to-end check of full mode
 	./scripts/smoke.sh
+
+loadtest: ## 100 simulated users against the running API (k6, or k6 in Docker)
+	@if command -v k6 >/dev/null; then k6 run loadtest/chat.js; \
+	else docker run --rm -i --network host grafana/k6 run - < loadtest/chat.js; fi

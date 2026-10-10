@@ -1,0 +1,87 @@
+# Production: one server runs everything (Part 2.3, ADR 0005).
+#   caddy (HTTPS, React files) → api → postgres;  pictures in S3 (or RustFS, see compose.storage.yaml)
+#   monitoring profile: Prometheus, Loki, Alloy, Grafana (included file)
+#
+# scripts/deploy.sh copies this directory to the server as ~/relay and runs:
+#   RELEASE=<git sha> docker compose -f compose.prod.yaml [--profile monitoring] up -d
+# Settings come from .env next to it (your deploy/.env.prod, copied with chmod 600).
+name: relay-prod # not "relay": dev full mode on the same machine must not share volumes
+
+include:
+  - monitoring/compose.monitoring.yaml
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: relay
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+      POSTGRES_DB: relay
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U relay -d relay"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 256m
+    restart: unless-stopped
+    # No ports: only the api reaches it, over the Docker network.
+
+  api:
+    image: relay-api:${RELEASE:?RELEASE is the git sha to run}
+    environment:
+      DATABASE_URL: postgres://relay:${POSTGRES_PASSWORD}@postgres:5432/relay?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env.prod}
+      COOKIE_SECURE: "true" # HTTPS only from here on
+      BCRYPT_COST: ${BCRYPT_COST:-12} # lowered only for load-test setups (Part 2.4)
+      LOG_FORMAT: json
+      METRICS_ADDR: ":9090"
+      # S3 by default: no keys — the AWS SDK picks up the instance's IAM role.
+      S3_ENDPOINT: ${S3_ENDPOINT:-s3.${S3_REGION:-eu-central-1}.amazonaws.com}
+      S3_REGION: ${S3_REGION:-eu-central-1}
+      S3_BUCKET: ${S3_BUCKET:-relay-media}
+      S3_USE_SSL: ${S3_USE_SSL:-true}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      S3_PUBLIC_URL: ${S3_PUBLIC_URL:-}
+      S3_CREATE_BUCKET: ${S3_CREATE_BUCKET:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/api", "healthcheck"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    # Each WebSocket is an open file. The default limit (1024) would cap us at
+    # ~1000 users long before CPU or memory do.
+    ulimits:
+      nofile: ${API_MAX_OPEN_FILES:-65536}
+    mem_limit: 256m
+    restart: unless-stopped
+
+  caddy:
+    image: relay-web:${RELEASE}
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env.prod}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env.prod (Lets Encrypt expiry notices)}
+      S3_UPLOAD_ORIGIN: ${S3_UPLOAD_ORIGIN:-}
+    volumes:
+      - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # certificates: keep them, or Let's Encrypt rate-limits you
+      - caddy_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    depends_on:
+      - api
+    mem_limit: 128m
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

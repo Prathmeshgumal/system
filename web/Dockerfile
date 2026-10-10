@@ -1,7 +1,9 @@
 # Multi-stage build — see knowledge-base/Notes.md, note 3.
 
 # ---- stage 1: build the React app into static files ----
-FROM node:24-alpine AS build
+# The build output is plain HTML/JS/CSS — the same for every CPU — so build on
+# your machine's own platform even when the image is for another one.
+FROM --platform=$BUILDPLATFORM node:24-alpine AS build
 WORKDIR /app
 RUN npm install -g pnpm@12.6.0
 

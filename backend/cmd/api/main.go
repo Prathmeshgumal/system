@@ -1,23 +1,27 @@
 // Command api is the Relay backend.
 //
-//	api              start the HTTP server
+//	api              apply migrations, then start the HTTP server
+//	api migrate      apply migrations and exit
 //	api healthcheck  exit 0 if the local server's /livez answers 200, else 1
 package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
+	"relay/internal/app"
+	"relay/internal/config"
+	"relay/internal/db"
 	"relay/internal/health"
+	"relay/internal/metrics"
+	"relay/internal/storage"
 )
 
 // version is replaced at build time: go build -ldflags "-X main.version=<git sha>".
@@ -27,6 +31,13 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		os.Exit(healthcheck())
 	}
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		if err := migrateOnly(); err != nil {
+			slog.Error("migrate failed", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		slog.Error("api stopped", "err", err)
 		os.Exit(1)
@@ -34,32 +45,49 @@ func main() {
 }
 
 func run() error {
-	port := getenv("PORT", "8080")
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		return errors.New("DATABASE_URL is not set (copy .env.example to .env)")
+	cfg, err := config.Load(os.Getenv)
+	if err != nil {
+		return err
 	}
+	setupLogging(cfg.LogFormat)
 
 	// ctx is cancelled on Ctrl+C (SIGINT) or `docker stop` (SIGTERM).
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// pgxpool connects lazily: this succeeds even if Postgres is down.
-	// /readyz reports 503 until the database becomes reachable.
-	pool, err := pgxpool.New(ctx, dbURL)
+	// The schema must be in place before we serve anything. In full mode the api
+	// can start before Postgres accepts connections, so keep trying for a while.
+	if err := db.MigrateWithRetry(ctx, cfg.DatabaseURL, 30*time.Second); err != nil {
+		return err
+	}
+
+	// After startup, a database outage no longer stops the api:
+	// /readyz reports 503 until the database is reachable again.
+	pool, err := db.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
-		return fmt.Errorf("parse DATABASE_URL: %w", err)
+		return err
 	}
 	defer pool.Close()
 
-	mux := http.NewServeMux()
-	health.NewHandler(health.NewChecker(pool, time.Second), version, time.Now()).Register(mux)
+	files, err := openStorage(ctx, cfg.S3)
+	if err != nil {
+		return err
+	}
+	a := app.New(cfg, pool, version, files)
+
+	if cfg.PprofAddr != "" {
+		go servePprof(cfg.PprofAddr)
+	}
+	if cfg.MetricsAddr != "" {
+		metrics.WatchPool(pool)
+		go serveMetrics(cfg.MetricsAddr)
+	}
 
 	// Go's zero-value http.Server has no timeouts, so a slow client could hold
 	// a connection open forever (slowloris). Set them explicitly.
 	srv := &http.Server{
-		Addr:              ":" + port,
-		Handler:           mux,
+		Addr:              ":" + cfg.Port,
+		Handler:           a.Handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
@@ -83,10 +111,84 @@ func run() error {
 	slog.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	a.Hub.Shutdown() // WebSockets are hijacked: srv.Shutdown doesn't close them
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}
 	slog.Info("stopped cleanly")
+	return nil
+}
+
+// setupLogging: "text" for people (dev), "json" for machines (production:
+// Loki parses each line, so you can filter by request_id, status, route…).
+func setupLogging(format string) {
+	var h slog.Handler = slog.NewTextHandler(os.Stdout, nil)
+	if format == "json" {
+		h = slog.NewJSONHandler(os.Stdout, nil)
+	}
+	slog.SetDefault(slog.New(h))
+}
+
+// serveMetrics exposes /metrics for Prometheus on a private address (e.g. :9090
+// inside the Docker network). Caddy doesn't route to it, so it's never public.
+func serveMetrics(addr string) {
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", metrics.Handler())
+	slog.Info("metrics listening", "addr", addr)
+	if err := http.ListenAndServe(addr, mux); err != nil {
+		slog.Error("metrics stopped", "err", err)
+	}
+}
+
+// servePprof exposes Go's profiler on its own private address (e.g.
+// 127.0.0.1:6060) — never on the public port: profiles reveal internals and
+// collecting one costs CPU. Part 1.4 uses it to find the first bottleneck:
+//
+//	go tool pprof -http=:7070 http://127.0.0.1:6060/debug/pprof/profile?seconds=30
+func servePprof(addr string) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", pprof.Index) // also serves heap, goroutine, block, mutex…
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	slog.Info("pprof listening", "addr", addr)
+	if err := http.ListenAndServe(addr, mux); err != nil {
+		slog.Error("pprof stopped", "err", err)
+	}
+}
+
+// openStorage connects to object storage for profile pictures, or returns nil
+// (pictures off) when S3_ENDPOINT isn't set.
+func openStorage(ctx context.Context, cfg config.S3Config) (storage.Storage, error) {
+	if cfg.Endpoint == "" {
+		slog.Warn("S3_ENDPOINT not set: profile pictures are off")
+		return nil, nil
+	}
+	s3, err := storage.New(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.CreateBucket {
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		if err := s3.EnsureBucket(ctx); err != nil {
+			// Storage being down at startup shouldn't stop chat; uploads will fail until it's back.
+			slog.Warn("could not create the storage bucket", "bucket", cfg.Bucket, "err", err)
+		}
+	}
+	return s3, nil
+}
+
+func migrateOnly() error {
+	cfg, err := config.Load(os.Getenv)
+	if err != nil {
+		return err
+	}
+	if err := db.Migrate(cfg.DatabaseURL); err != nil {
+		return err
+	}
+	slog.Info("migrations applied")
 	return nil
 }
 

@@ -1,6 +1,10 @@
-# Dev mode:  `make db`      → only postgres (services without a profile)
+# Dev mode:   `make db`      → postgres + storage (services without a profile)
+# Monitoring: add `--profile monitoring` (Prometheus, Loki, Alloy, Grafana on 127.0.0.1:3000)
 # Full mode: `make up-full` → postgres + api + web (the "full" profile)
 name: relay
+
+include:
+  - deploy/monitoring/compose.monitoring.yaml
 
 services:
   postgres:
@@ -19,6 +23,24 @@ services:
       timeout: 3s
       retries: 10
 
+  # S3-compatible object storage for profile pictures (Part 2.2). RustFS stands
+  # in for AWS S3: same API, so the code doesn't change. (MinIO stopped
+  # publishing Docker images.)
+  storage:
+    image: rustfs/rustfs:1.0.1
+    environment:
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY}
+    ports:
+      - "${S3_PORT:-9000}:9000" # published so the API on your machine can reach it
+    volumes:
+      - mediadata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   api:
     profiles: [full]
     build:
@@ -29,6 +51,18 @@ services:
       PORT: "8080"
       # Inside the Docker network, Postgres is reached by its service name, not localhost.
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # Storage by service name; browsers upload through Caddy's /storage route.
+      S3_ENDPOINT: storage:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_PUBLIC_URL: /storage
+      S3_CREATE_BUCKET: "true"
+      # Production-style observability (Part 2.4): JSON logs for Loki, metrics for
+      # Prometheus on a port that only the Docker network can reach.
+      LOG_FORMAT: json
+      METRICS_ADDR: ":9090"
     depends_on:
       - postgres # waits for the container to start, not to be healthy — /readyz handles the gap
     healthcheck:
@@ -49,3 +83,4 @@ services:
 
 volumes:
   pgdata:
+  mediadata:
