@@ -1,12 +1,12 @@
 // Command api is the Relay backend.
 //
-//	api              start the HTTP server
+//	api              apply migrations, then start the HTTP server
+//	api migrate      apply migrations and exit
 //	api healthcheck  exit 0 if the local server's /livez answers 200, else 1
 package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -15,8 +15,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
+	"relay/internal/app"
+	"relay/internal/config"
+	"relay/internal/db"
 	"relay/internal/health"
 )
 
@@ -27,6 +28,13 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		os.Exit(healthcheck())
 	}
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		if err := migrateOnly(); err != nil {
+			slog.Error("migrate failed", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		slog.Error("api stopped", "err", err)
 		os.Exit(1)
@@ -34,32 +42,34 @@ func main() {
 }
 
 func run() error {
-	port := getenv("PORT", "8080")
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		return errors.New("DATABASE_URL is not set (copy .env.example to .env)")
+	cfg, err := config.Load(os.Getenv)
+	if err != nil {
+		return err
 	}
 
 	// ctx is cancelled on Ctrl+C (SIGINT) or `docker stop` (SIGTERM).
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// pgxpool connects lazily: this succeeds even if Postgres is down.
-	// /readyz reports 503 until the database becomes reachable.
-	pool, err := pgxpool.New(ctx, dbURL)
+	// The schema must be in place before we serve anything. In full mode the api
+	// can start before Postgres accepts connections, so keep trying for a while.
+	if err := db.MigrateWithRetry(ctx, cfg.DatabaseURL, 30*time.Second); err != nil {
+		return err
+	}
+
+	// After startup, a database outage no longer stops the api:
+	// /readyz reports 503 until the database is reachable again.
+	pool, err := db.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
-		return fmt.Errorf("parse DATABASE_URL: %w", err)
+		return err
 	}
 	defer pool.Close()
-
-	mux := http.NewServeMux()
-	health.NewHandler(health.NewChecker(pool, time.Second), version, time.Now()).Register(mux)
 
 	// Go's zero-value http.Server has no timeouts, so a slow client could hold
 	// a connection open forever (slowloris). Set them explicitly.
 	srv := &http.Server{
-		Addr:              ":" + port,
-		Handler:           mux,
+		Addr:              ":" + cfg.Port,
+		Handler:           app.New(cfg, pool, version),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
@@ -87,6 +97,18 @@ func run() error {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}
 	slog.Info("stopped cleanly")
+	return nil
+}
+
+func migrateOnly() error {
+	cfg, err := config.Load(os.Getenv)
+	if err != nil {
+		return err
+	}
+	if err := db.Migrate(cfg.DatabaseURL); err != nil {
+		return err
+	}
+	slog.Info("migrations applied")
 	return nil
 }
 
