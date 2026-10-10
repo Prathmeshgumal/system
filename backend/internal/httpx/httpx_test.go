@@ -127,3 +127,24 @@ func TestHandle_ClientGoneIsNotAnError(t *testing.T) {
 		t.Errorf("status = %d, want %d", rec.Code, StatusClientClosed)
 	}
 }
+
+func TestHandle_AbortedRequestWithUnrelatedErrorIsNotAnError(t *testing.T) {
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(prev)
+
+	// pgx interrupts a query on cancel by setting a deadline in the past, so the
+	// error says "i/o timeout" and doesn't wrap context.Canceled.
+	h := Handle(func(w http.ResponseWriter, r *http.Request) error {
+		return errors.New("write failed: write tcp 127.0.0.1:1->127.0.0.1:5432: i/o timeout")
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // the browser went away
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil).WithContext(ctx))
+
+	if strings.Contains(logs.String(), "ERROR") || rec.Code != StatusClientClosed {
+		t.Errorf("status %d, logs %q", rec.Code, logs.String())
+	}
+}

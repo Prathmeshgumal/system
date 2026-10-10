@@ -68,8 +68,10 @@ const StatusClientClosed = 499
 // WriteError writes err as JSON. Errors that aren't *Error are bugs or outages:
 // they're logged in full, and the client gets a bare 500 (no internals leaked).
 func WriteError(w http.ResponseWriter, r *http.Request, err error) {
-	if errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) || r.Context().Err() != nil {
 		// The browser aborted (closed the tab, switched chats). Not our bug.
+		// Check the request's context too: pgx interrupts a cancelled query with
+		// a past deadline, so its error says "i/o timeout", not "canceled".
 		w.WriteHeader(StatusClientClosed)
 		return
 	}
