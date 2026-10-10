@@ -7,9 +7,10 @@ export default defineConfig({
   server: {
     // Dev reverse proxy: the browser only talks to Vite, which forwards API
     // calls to Go. Same origin → no CORS. See knowledge-base/Notes.md, note 1.
-    // /ws gets added here in Part 1.3.
+    // ws: true lets the WebSocket Upgrade handshake through (Part 1.3).
     proxy: {
       '/api': 'http://localhost:8080',
+      '/ws': { target: 'ws://localhost:8080', ws: true },
     },
   },
   test: {

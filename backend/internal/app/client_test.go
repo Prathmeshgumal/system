@@ -17,7 +17,8 @@ import (
 )
 
 // newServer starts the whole API against a fresh database.
-func newServer(t *testing.T) *httptest.Server {
+// configure (optional) adjusts the http.Server before it starts.
+func newServer(t *testing.T, configure ...func(*http.Server)) *httptest.Server {
 	t.Helper()
 	pool := testdb.New(t)
 	cfg := config.Config{
@@ -26,7 +27,11 @@ func newServer(t *testing.T) *httptest.Server {
 		RefreshTTL: 24 * time.Hour,
 		BcryptCost: 4, // bcrypt.MinCost: tests don't need slow hashing
 	}
-	srv := httptest.NewServer(app.New(cfg, pool, "test"))
+	srv := httptest.NewUnstartedServer(app.New(cfg, pool, "test").Handler)
+	for _, f := range configure {
+		f(srv.Config)
+	}
+	srv.Start()
 	t.Cleanup(srv.Close)
 	return srv
 }

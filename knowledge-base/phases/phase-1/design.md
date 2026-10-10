@@ -222,8 +222,11 @@ unique `(sender_id, client_id)` constraint rejects the second, which then return
 | `POST /api/chats/{id}/members` `{user_ids}` | add members (admin) |
 | `DELETE /api/chats/{id}/members/{userId}` | remove someone (admin) or leave (self) |
 | `PATCH /api/chats/{id}/members/{userId}` `{role}` | promote / demote (admin) |
-| `GET /api/chats/{id}/messages?before=&limit=` | history, newest first, `limit ≤ 100` (default 50) |
-| `GET /api/chats/{id}/messages?after=&limit=` | catch-up, oldest first |
+| `GET /api/chats/{id}/messages?before=&limit=` | history: the page just before `seq`, `limit ≤ 100` (default 50) |
+| `GET /api/chats/{id}/messages?after=&limit=` | catch-up: the page just after `seq` |
+
+Every page is ordered oldest → newest and says `has_more` (we fetch `limit + 1` rows to know
+— no `COUNT`). Sending returns `201`, or `200` with the original message for a retry.
 | `POST /api/chats/{id}/messages` `{body, client_id}` | send |
 | `PATCH /api/messages/{id}` `{body}` | edit my message |
 | `DELETE /api/messages/{id}` | delete my message (soft: body cleared, `deleted_at` set) |
@@ -302,8 +305,9 @@ while offline can be skipped. Duplicates (an event and a catch-up page both carr
 ### Proxies
 
 Vite: `'/ws': { target: 'ws://localhost:8080', ws: true }`. Caddy: `handle /ws { reverse_proxy api:8080 }`
-(Caddy passes `Upgrade` through by itself). The API server's `WriteTimeout` would kill
-long-lived connections, so the WebSocket handler clears its deadline via `http.ResponseController`.
+(Caddy passes `Upgrade` through by itself). The API server's 15 s `WriteTimeout` does *not*
+kill long-lived WebSockets: `net/http` clears connection deadlines on hijack (we first
+assumed otherwise — a test proved it; see [1.3 learnings](1.3-realtime/learnings.md)).
 
 ---
 

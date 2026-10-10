@@ -10,28 +10,41 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"relay/internal/auth"
+	"relay/internal/chat"
 	"relay/internal/config"
 	"relay/internal/health"
 	"relay/internal/httpx"
+	"relay/internal/realtime"
 	"relay/internal/users"
 )
 
-func New(cfg config.Config, pool *pgxpool.Pool, version string) http.Handler {
+type App struct {
+	Handler http.Handler
+	Hub     *realtime.Hub // main calls Hub.Shutdown to close WebSockets on exit
+}
+
+func New(cfg config.Config, pool *pgxpool.Pool, version string) *App {
 	userStore := users.NewStore(pool)
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.AccessTTL)
+	hub := realtime.NewHub()
+	ws := realtime.NewHandler(hub, tokens)
+	chats := chat.NewService(chat.NewStore(pool), userStore, hub)
 
 	mux := http.NewServeMux()
 
-	// Public: health and logging in.
+	// Public: health, logging in, and the WebSocket (it checks its own ticket).
 	health.NewHandler(health.NewChecker(pool, time.Second), version, time.Now()).Register(mux)
 	auth.NewHandler(userStore, auth.NewSessions(pool, cfg.RefreshTTL), tokens,
 		auth.NewHasher(cfg.BcryptCost), cfg.CookieSecure).Register(mux)
+	ws.RegisterPublic(mux)
 
 	// Everything else under /api needs an access token. Go's mux picks the most
 	// specific pattern, so /api/auth/… and /api/status above still win.
 	private := http.NewServeMux()
 	users.NewHandler(userStore).Register(private)
+	chat.NewHandler(chats).Register(private)
+	ws.RegisterPrivate(private)
 	mux.Handle("/api/", tokens.RequireUser(private))
 
-	return httpx.Recover(httpx.Log(mux))
+	return &App{Handler: httpx.Recover(httpx.Log(mux)), Hub: hub}
 }

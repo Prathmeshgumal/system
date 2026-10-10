@@ -65,11 +65,13 @@ func run() error {
 	}
 	defer pool.Close()
 
+	a := app.New(cfg, pool, version)
+
 	// Go's zero-value http.Server has no timeouts, so a slow client could hold
 	// a connection open forever (slowloris). Set them explicitly.
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           app.New(cfg, pool, version),
+		Handler:           a.Handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
@@ -93,6 +95,7 @@ func run() error {
 	slog.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	a.Hub.Shutdown() // WebSockets are hijacked: srv.Shutdown doesn't close them
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}

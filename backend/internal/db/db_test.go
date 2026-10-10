@@ -19,8 +19,8 @@ func TestMigrate_SecondRunIsNoOp(t *testing.T) {
 
 	var n int
 	err := pool.QueryRow(context.Background(),
-		"SELECT count(*) FROM information_schema.tables WHERE table_name IN ('users','sessions')").Scan(&n)
-	if err != nil || n != 2 {
-		t.Fatalf("tables found = %d, err = %v; want 2", n, err)
+		"SELECT count(*) FROM information_schema.tables WHERE table_name IN ('users','sessions','chats','chat_members','messages')").Scan(&n)
+	if err != nil || n != 5 {
+		t.Fatalf("tables found = %d, err = %v; want 5", n, err)
 	}
 }
