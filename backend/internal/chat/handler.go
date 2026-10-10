@@ -193,7 +193,8 @@ func (h *Handler) history(w http.ResponseWriter, r *http.Request) error {
 		}
 		p.Limit = n
 	}
-	if p.Before > 0 && p.After > 0 {
+	p.Forward = q.Has("after") // after=0 is meaningful: "from the very first message"
+	if q.Has("before") && p.Forward {
 		fields["after"] = "use before or after, not both"
 	}
 	if len(fields) > 0 {

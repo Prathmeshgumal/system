@@ -190,13 +190,20 @@ func TestHistory_BeforeAndAfterCursors(t *testing.T) {
 	}
 
 	// Catch-up: everything after what I've seen, oldest first.
-	a, _ := f.store.History(f.ctx, c.ID, chat.Page{After: 4, Limit: 2})
+	a, _ := f.store.History(f.ctx, c.ID, chat.Page{After: 4, Forward: true, Limit: 2})
 	if seqs(a) != "5,6" || !a.HasMore {
 		t.Fatalf("after 4 = %s has_more=%v", seqs(a), a.HasMore)
 	}
-	a2, _ := f.store.History(f.ctx, c.ID, chat.Page{After: 6, Limit: 2})
+	a2, _ := f.store.History(f.ctx, c.ID, chat.Page{After: 6, Forward: true, Limit: 2})
 	if seqs(a2) != "7" || a2.HasMore {
 		t.Fatalf("after 6 = %s has_more=%v", seqs(a2), a2.HasMore)
+	}
+
+	// A client that had an empty chat catches up with after=0: it needs the
+	// OLDEST messages first, not the newest page (which would leave a hole).
+	a0, _ := f.store.History(f.ctx, c.ID, chat.Page{After: 0, Forward: true, Limit: 3})
+	if seqs(a0) != "1,2,3" || !a0.HasMore {
+		t.Fatalf("after 0 = %s has_more=%v", seqs(a0), a0.HasMore)
 	}
 }
 

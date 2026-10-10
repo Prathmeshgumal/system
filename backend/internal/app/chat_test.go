@@ -194,6 +194,10 @@ func TestChat_HistoryPagination(t *testing.T) {
 	if len(h.Messages) != 2 || h.Messages[0].Seq != 4 {
 		t.Fatalf("catch-up page = %+v", h)
 	}
+	bob.do("GET", fmt.Sprintf("/api/chats/%d/messages?after=0&limit=2", c.ID), nil, &h)
+	if len(h.Messages) != 2 || h.Messages[0].Seq != 1 || !h.HasMore {
+		t.Fatalf("catch-up from an empty chat = %+v, want seq 1,2", h)
+	}
 	if code := bob.do("GET", fmt.Sprintf("/api/chats/%d/messages?limit=1000", c.ID), nil, nil); code != 400 {
 		t.Errorf("limit 1000 = %d, want 400", code)
 	}

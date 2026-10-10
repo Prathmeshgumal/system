@@ -59,9 +59,12 @@ type ListItem struct {
 	LastMessage *Message
 }
 
-// Page asks for history. Before = 0 and After = 0 means "the newest messages".
+// Page asks for history: the page before Before (scrolling up), or — when
+// Forward is set — the page after After (catching up; After may be 0).
+// Neither set means "the newest messages".
 type Page struct {
 	Before, After int64
+	Forward       bool
 	Limit         int
 }
 
@@ -373,7 +376,7 @@ func (s *Store) Delete(ctx context.Context, id int64) (Message, error) {
 func (s *Store) History(ctx context.Context, chatID int64, p Page) (MessagePage, error) {
 	var rows pgx.Rows
 	var err error
-	if p.After > 0 {
+	if p.Forward {
 		rows, err = s.db.Query(ctx, `
 			SELECT `+messageColumns+` FROM messages
 			WHERE chat_id = $1 AND seq > $2 ORDER BY seq ASC LIMIT $3`, chatID, p.After, p.Limit+1)
@@ -398,7 +401,7 @@ func (s *Store) History(ctx context.Context, chatID int64, p Page) (MessagePage,
 	if page.HasMore {
 		page.Messages = msgs[:p.Limit]
 	}
-	if p.After <= 0 {
+	if !p.Forward {
 		slices.Reverse(page.Messages) // fetched newest-first; pages are oldest-first
 	}
 	if page.Messages == nil {

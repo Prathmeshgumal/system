@@ -613,10 +613,10 @@ catch up), fetching `limit + 1` rows to know `has_more` without `COUNT`. Unread 
 | Code | What it does |
 |---|---|
 | [`backend/migrations/0002_chats.up.sql:38`](../backend/migrations/0002_chats.up.sql#L38) | `UNIQUE (chat_id, seq)` — the index every page uses |
-| [`backend/internal/chat/store.go:296`](../backend/internal/chat/store.go#L296) | `Send` — idempotency check, then… |
-| [`backend/internal/chat/store.go:307`](../backend/internal/chat/store.go#L307) | …the row lock that orders sends |
-| [`backend/internal/chat/store.go:373`](../backend/internal/chat/store.go#L373) | `History` — `before` / `after` cursors, `limit + 1` |
-| [`backend/internal/chat/store.go:170`](../backend/internal/chat/store.go#L170) | `ListForUser` — unread by subtraction, one query |
+| [`backend/internal/chat/store.go:299`](../backend/internal/chat/store.go#L299) | `Send` — idempotency check, then… |
+| [`backend/internal/chat/store.go:310`](../backend/internal/chat/store.go#L310) | …the row lock that orders sends |
+| [`backend/internal/chat/store.go:376`](../backend/internal/chat/store.go#L376) | `History` — `before` / `after` cursors, `limit + 1` |
+| [`backend/internal/chat/store.go:173`](../backend/internal/chat/store.go#L173) | `ListForUser` — unread by subtraction, one query |
 | [`backend/internal/chat/service.go:96`](../backend/internal/chat/service.go#L96) + [`users/store.go:83`](../backend/internal/users/store.go#L83) | the N+1 fix: collect ids, one `GetMany` |
 | [`backend/internal/chat/store_test.go:96`](../backend/internal/chat/store_test.go#L96) | 20 concurrent sends → seq 1…20, no gaps |
 | [`web/src/chat/queries.ts:42`](../web/src/chat/queries.ts#L42) | the client's cursor: oldest seq on the last page |
