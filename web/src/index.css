@@ -1,3 +1,6 @@
+@import "tailwindcss";
+
+/* Variables used by the Part 0.1 status page (status/StatusPage.css). */
 :root {
   --bg: #f6f6f8;
   --card: #ffffff;
