@@ -1,7 +1,8 @@
 # Phase 1 — Chat MVP (v0.1): Design
 
 - **Phase:** 1 — Chat MVP for 100 users
-- **Status:** 🟨 building — all four parts in one pass (see [plan.md](plan.md))
+- **Status:** ✅ built and measured — your hands-on experiments are listed in each part's learnings:
+  [1.1](1.1-accounts-auth/learnings.md) · [1.2](1.2-chats-rest/learnings.md) · [1.3](1.3-realtime/learnings.md) · [1.4](1.4-measure/learnings.md)
 - **Branch:** `claude/dreamy-franklin-1jaomb` (off `main` after Part 0.1)
 - **Plan:** [plan.md](plan.md) · **ADRs:** [0001 auth](../../adr/0001-auth-tokens.md) ·
   [0002 schema](../../adr/0002-chat-schema.md) · [0003 WebSocket protocol](../../adr/0003-websocket-protocol.md)
@@ -35,7 +36,7 @@ Chosen by Claude, overridable — each has a "why" and, where it's a real trade-
 
 | # | Decision | Chosen | Why | Where |
 |---|---|---|---|---|
-| A | Password hashing | **bcrypt, cost 12** (`golang.org/x/crypto/bcrypt`) | Roadmap pick; slow on purpose; cost tunable. Argon2id is the modern default — noted as the upgrade | [ADR 0001](../../adr/0001-auth-tokens.md) |
+| A | Password hashing | **bcrypt, cost 12** (`golang.org/x/crypto/bcrypt`), at most GOMAXPROCS − 1 hashes at once (added in 1.4) | Roadmap pick; slow on purpose; cost tunable. Argon2id is the modern default — noted as the upgrade | [ADR 0001](../../adr/0001-auth-tokens.md), [Note 7](../../Notes.md#7-password-hashing--cpu-heavy-work) |
 | B | Session shape | **Short-lived JWT access token (15 min) + opaque refresh token (30 days) in an httpOnly cookie, rotated on every use, with reuse detection** | Stateless checks on every request (no DB hit), but still revocable via the refresh session | [ADR 0001](../../adr/0001-auth-tokens.md) |
 | C | Where the browser keeps tokens | **Access token in memory only; refresh token in `HttpOnly; SameSite=Strict; Path=/api/auth` cookie** | XSS can't read the refresh token; CSRF can't send it cross-site; the access token isn't a cookie so CSRF doesn't apply to the rest of the API | [Note 4](../../Notes.md#4-sessions-jwts--where-tokens-live) |
 | D | IDs | **`bigint` identity everywhere** | Simple, small, ordered. Enumerable — acceptable now; Phase 7 revisits (Snowflake IDs) | [ADR 0002](../../adr/0002-chat-schema.md) |
@@ -313,10 +314,11 @@ assumed otherwise — a test proved it; see [1.3 learnings](1.3-realtime/learnin
 
 ## Section 6 — Part 1.4: Measure it
 
-- **k6 script** `loadtest/chat.js`: `setup()` signs up 100 users and creates groups of 5;
-  100 VUs each log in, open a WebSocket, send one message every 3 s (≈ 10× the estimate)
-  for 2 minutes, and record **delivery latency** (send time → `message.created` received by
-  each member) as a custom trend.
+- **k6 script** `loadtest/chat.js`: `setup()` signs up 100 users and creates 20 groups of 5.
+  Users 1–50 log in and start chatting at t = 0; **users 51–100 log in all at once at t = 30 s**
+  (to test the prediction in Section 1 while others are chatting). Everyone sends one message
+  every 3 s (≈ 10× the estimate) until t = 120 s, and every receiver records **delivery
+  latency** (send time → `message.created` on its WebSocket) as a custom trend.
 - **Thresholds:** 0 failed requests, `delivery p95 < 200 ms`, `http_req_duration p95 < 200 ms`.
 - **pprof** on a separate, private address (`PPROF_ADDR`, e.g. `127.0.0.1:6060`, off by
   default) — never on the public port.
@@ -344,13 +346,22 @@ validation, error format, the hub (fan-out, slow-consumer eviction), the event J
 **React** (Vitest + Testing Library): API client refresh-once-and-retry, login/signup forms,
 chat list rendering + unread, event → cache updates (pure functions), reconnect backoff.
 
-**End to end:** `scripts/e2e.sh` boots the API + web build against a scratch database and
-drives two Chromium users with Playwright: sign up both, start a chat, message arrives live.
+**End to end:** `make e2e` — Playwright starts the API and Vite (or reuses running ones) and
+drives real Chromium users: a reload keeps you logged in; two users chat live (send, unread
+badge, reply, edit, delete); a cut connection reconnects and catches up; a group admin
+removes a member. Users get unique names per run, so it works against your dev database.
+
+**Full mode:** `make smoke` additionally signs up and refreshes through Caddy with a browser
+`Origin` header, and checks the WebSocket upgrade returns `101`.
 
 ### Done when
 
-- [ ] `make test` passes (Go unit + integration, React)
-- [ ] Two browsers, two users: a message appears in the other browser live (< 200 ms locally)
-- [ ] Edit/delete appear live; unread counts right; reconnect catches up after the API restarts
-- [ ] `make loadtest`: 100 users, no errors, thresholds met; bottleneck found and fixed, written up
-- [ ] ADRs 0001–0003 written; new concepts in `Notes.md`; tracker shows Phase 1 ✅
+- [x] `make test` passes (Go unit + integration against real Postgres, React) — also under `go test -race`
+- [x] Two browsers, two users: a message appears in the other browser live — **~70–100 ms** in the
+  e2e test including Playwright's polling; ~4 ms server-side (1.4)
+- [x] Edit/delete appear live; unread counts right; a cut connection reconnects and catches up (e2e)
+- [x] `make loadtest`: 100 users, 0 errors, thresholds met; bottleneck (bcrypt burst) found with
+  pprof, fixed, re-measured — [1.4 learnings](1.4-measure/learnings.md)
+- [x] `make smoke` passes in full mode (Docker + Caddy)
+- [x] ADRs 0001–0003 written; Notes 4–7 added; tracker shows Phase 1 ✅
+- [ ] **Yours:** the hands-on experiments in each part's learnings

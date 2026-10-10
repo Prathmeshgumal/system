@@ -5,18 +5,28 @@ deployed on AWS and grown from 100 users toward 1M.
 
 - Plan: [knowledge-base/00-roadmap.md](knowledge-base/00-roadmap.md)
 - What each version does: [knowledge-base/01-app-versions.md](knowledge-base/01-app-versions.md)
+- Progress: [knowledge-base/phases/README.md](knowledge-base/phases/README.md) — Phase 1 (chat MVP, v0.1) is built
 
 ## Quick start
 
-Needs: Docker, Go 1.27+, Node 24+, pnpm, make.
+Needs: Docker, Go 1.27+, Node 24+, pnpm, make. Optional: [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/)
+for `make loadtest` (falls back to k6 in Docker).
 
 ```sh
-cp .env.example .env     # then change the password in both places inside it
+cp .env.example .env     # then change the password (both places) and JWT_SECRET inside it
 make dev                 # Postgres + Go API (live reload) + React — open the URL Vite prints
 make help                # every other command
 ```
 
-`make up-full` runs everything in containers at http://localhost:8000.
+Open the app, sign up, then sign up a second user in a private window and start a chat.
+`make up-full` runs everything in containers at http://localhost:8000; `/status` shows health.
+
+| Check | Command | Needs |
+|---|---|---|
+| Unit + integration tests | `make test` | `make db` running (tests create and drop their own databases) |
+| Browser tests (two users chatting) | `make e2e` | first time: `cd web && pnpm exec playwright install chromium` |
+| Full mode end to end | `make smoke` | Docker |
+| 100-user load test | `make loadtest` | the API running (`make dev`) |
 
 ## Layout
 

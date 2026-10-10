@@ -12,6 +12,10 @@ Format per note: **What it is → Why it matters → What we chose → In our co
 | 1 | [Same-origin policy, CORS & reverse proxies](#1-same-origin-policy-cors--reverse-proxies) | Part 0.1, decision C |
 | 2 | [Health checks: liveness vs readiness](#2-health-checks-liveness-vs-readiness) | Part 0.1, decision D |
 | 3 | [Multi-stage Docker builds & base images](#3-multi-stage-docker-builds--base-images) | Part 0.1, decision E |
+| 4 | [Sessions, JWTs & where tokens live](#4-sessions-jwts--where-tokens-live) | Phase 1, decisions B–C |
+| 5 | [HTTP vs polling vs WebSockets](#5-http-vs-polling-vs-websockets) | Phase 1, decisions H–J |
+| 6 | [Ordering & cursor pagination](#6-ordering--cursor-pagination) | Phase 1, decisions E–G |
+| 7 | [Password hashing & CPU-heavy work](#7-password-hashing--cpu-heavy-work) | Phase 1, decision A + Part 1.4 |
 
 ---
 
@@ -83,17 +87,18 @@ WebSockets need the proxy to pass through the HTTP `Upgrade` handshake — Vite 
 
 | Code | What it does |
 |---|---|
-| [`web/vite.config.ts:12`](../web/vite.config.ts#L12) | **Dev proxy.** Vite forwards `/api/*` to Go on `localhost:8080` |
+| [`web/vite.config.ts:18`](../web/vite.config.ts#L18) | **Dev proxy.** Vite forwards `/api/*` to Go on `localhost:8080` |
 | [`web/Caddyfile:7`](../web/Caddyfile#L7) | **Full-mode proxy.** Caddy forwards `/api/*` to the `api` container |
-| [`web/Caddyfile:13`](../web/Caddyfile#L13) | Everything else gets the React files (that's why `/livez` isn't exposed) |
+| [`web/Caddyfile:18`](../web/Caddyfile#L18) | Everything else gets the React files (that's why `/livez` isn't exposed) |
 | [`web/src/status/api.ts:17`](../web/src/status/api.ts#L17) | React calls `fetch('/api/status')` — a **relative** path, so it goes to whichever proxy served the page |
 
-[`web/vite.config.ts:12`](../web/vite.config.ts#L12)
+[`web/vite.config.ts:18`](../web/vite.config.ts#L18)
 
 ```ts
 // web/vite.config.ts — dev mode
 proxy: {
-  '/api': 'http://localhost:8080',   // "/api…" → Go on your machine
+  '/api': { target: 'http://localhost:8080', changeOrigin: false },  // "/api…" → Go on your machine
+  '/ws': { target: 'ws://localhost:8080', ws: true, changeOrigin: false },  // WebSockets (Part 1.3)
 },
 ```
 
@@ -125,6 +130,11 @@ fetch('/api/status', ...)            // no host → same origin as the page
 - **Same-site ≠ same-origin.** `app.relay.com` and `api.relay.com` are *cross-origin* but
   *same-site* (same registrable domain `relay.com`), so `SameSite=Lax` cookies still flow
   between them. Truly different sites (`relay.com` ↔ `relay-api.io`) need `SameSite=None; Secure`.
+- **A proxy may rewrite `Host`.** Vite's shorthand `'/api': 'http://localhost:8080'` sets
+  `changeOrigin: true`, so Go sees `Host: localhost:8080` while the browser's `Origin` is
+  `localhost:5173`. Any Origin check (our refresh endpoint, the WebSocket upgrade) then
+  rejects the request as cross-origin. Found in Phase 1 when a page reload logged users out;
+  fixed with `changeOrigin: false`, matching Caddy (which keeps `Host` by default).
 - A proxy hides the real client IP — the app must read `X-Forwarded-For` (and only trust
   it from the proxy). Matters for rate limiting in Phase 3.
 
@@ -225,10 +235,10 @@ taking traffic (readiness fails), and come back on their own when the DB returns
 | [`backend/internal/health/handler.go:55`](../backend/internal/health/handler.go#L55) | `status` — details for the UI |
 | [`backend/internal/health/checker_test.go:47`](../backend/internal/health/checker_test.go#L47) | `TestCheckPostgres_PingHangs_GivesUpAtTimeout` — proves the 1-second limit works |
 | [`backend/internal/health/handler_test.go:41`](../backend/internal/health/handler_test.go#L41) | `TestLivez_DBDown_StillReturns200` — this note's main rule, as a test |
-| [`backend/cmd/api/main.go:93`](../backend/cmd/api/main.go#L93) | `healthcheck()` — the binary checks its own `/livez` (no curl in distroless)… |
+| [`backend/cmd/api/main.go:141`](../backend/cmd/api/main.go#L141) | `healthcheck()` — the binary checks its own `/livez` (no curl in distroless)… |
 | [`backend/internal/health/probe.go:13`](../backend/internal/health/probe.go#L13) | …using `Probe` |
 | [`compose.yaml:16`](../compose.yaml#L16) | Postgres healthcheck (`pg_isready`) |
-| [`compose.yaml:34`](../compose.yaml#L34) | API healthcheck (`/api healthcheck`) |
+| [`compose.yaml:36`](../compose.yaml#L36) | API healthcheck (`/api healthcheck`) |
 
 [`backend/internal/health/handler.go:41`](../backend/internal/health/handler.go#L41)
 
@@ -374,7 +384,7 @@ certificates (to verify HTTPS servers like S3) and timezone data — exactly wha
 | [`web/Dockerfile:4`](../web/Dockerfile#L4) | React **build** stage: `node:24-alpine` |
 | [`web/Dockerfile:16`](../web/Dockerfile#L16) | React **run** stage: `caddy:2-alpine` serves the built files |
 | [`compose.yaml:24`](../compose.yaml#L24) | `build:` for `api`; passes the git commit as `VERSION` (line 27) |
-| [`compose.yaml:44`](../compose.yaml#L44) | `build:` for `web` |
+| [`compose.yaml:46`](../compose.yaml#L46) | `build:` for `web` |
 
 Result: `relay-api` image = **20 MB** (vs ~800 MB for the `golang` build image).
 
@@ -409,3 +419,293 @@ Result: `relay-api` image = **20 MB** (vs ~800 MB for the `golang` build image).
 - "How do you keep container images small and secure?" → multi-stage, minimal base, non-root, `.dockerignore`, scanning.
 - "Why are your deploys slow?" → huge images, bad layer ordering, no build cache.
 - "Container vs VM?" → containers share the host kernel (namespaces + cgroups); VMs have their own kernel.
+
+---
+
+## 4. Sessions, JWTs & where tokens live
+
+*Came up in Phase 1 — how the API knows who's calling. Full decision: [ADR 0001](adr/0001-auth-tokens.md).*
+
+### What it is
+
+After login the server hands the browser a **credential** it sends with every request. Two styles:
+
+| | Session id (opaque) | JWT (self-contained) |
+|---|---|---|
+| Looks like | `k3J9…` random string | `header.payload.signature` (base64url) |
+| Server checks it by | looking it up in a DB/Redis | verifying the signature — no lookup |
+| Revoke it | delete the row — instant | can't; wait for `exp` |
+| Cost per request | one lookup | one HMAC (microseconds) |
+
+A **JWT payload is readable by anyone** (it's base64, not encryption) — the signature only proves
+*we* wrote it. So: no secrets in claims.
+
+**Where the browser keeps it** matters as much as the format:
+
+| Storage | XSS (attacker's JS runs on our page) | CSRF (another site makes the browser call us) |
+|---|---|---|
+| `localStorage` | ❌ readable — stolen | ✅ not sent automatically |
+| JS memory | ⚠️ usable while the page is open, gone on reload | ✅ not sent automatically |
+| `HttpOnly` cookie | ✅ JS can't read it | ❌ sent automatically → needs `SameSite` / Origin checks |
+
+### Why it matters
+
+Every request is authenticated, so the check must be cheap; but "log this device out" and
+"someone stole a token" must also be possible. Combining both styles gets both.
+
+### What we chose
+
+- **Access token:** JWT, 15 min, **in memory** → cheap stateless check on every request.
+- **Refresh token:** random, 30 days, **`HttpOnly; SameSite=Strict; Path=/api/auth` cookie**, stored
+  hashed in `sessions` → revocable. Only `/api/auth/refresh` and `/logout` ever receive it.
+- **Rotation + reuse detection:** every refresh issues a new token; an old one coming back =
+  a copy exists = revoke the session.
+- On page load, the app calls refresh once to get a new access token.
+
+### In our code
+
+| Code | What it does |
+|---|---|
+| [`backend/internal/auth/tokens.go:42`](../backend/internal/auth/tokens.go#L42) | `IssueAccess` — the JWT's claims |
+| [`backend/internal/auth/tokens.go:95`](../backend/internal/auth/tokens.go#L95) | `parse` — algorithm pinned to HS256, audience + expiry required |
+| [`backend/internal/auth/middleware.go:15`](../backend/internal/auth/middleware.go#L15) | `RequireUser` — no DB query per request |
+| [`backend/internal/auth/sessions.go:68`](../backend/internal/auth/sessions.go#L68) | `Rotate` — rotation and replay detection in two `UPDATE`s |
+| [`backend/internal/auth/handler.go:180`](../backend/internal/auth/handler.go#L180) | the refresh cookie's flags, each with its reason |
+| [`backend/internal/auth/handler.go:203`](../backend/internal/auth/handler.go#L203) | `checkOrigin` — CSRF defence in depth |
+| [`web/src/lib/api.ts:42`](../web/src/lib/api.ts#L42) | `api()` — on 401, refresh once and retry |
+| [`web/src/lib/api.ts:94`](../web/src/lib/api.ts#L94) | `refreshSession` — one in-flight refresh, Web Locks across tabs |
+| [`backend/internal/auth/tokens_test.go:49`](../backend/internal/auth/tokens_test.go#L49) | the `alg: none` attack, as a test |
+| [`backend/internal/auth/sessions_test.go:14`](../backend/internal/auth/sessions_test.go#L14) | replaying an old refresh token revokes the session |
+
+**See it yourself:** log in, open DevTools → Application → Cookies: `relay_refresh` is there,
+marked HttpOnly — then type `document.cookie` in the console: it's not visible. Paste an
+access token (Network tab → any `/api` request → `Authorization`) into jwt.io and read its claims.
+
+### Gotchas
+
+- **Never trust the token's `alg` header.** Libraries that do accept `alg: none` (no signature)
+  or let an RS256 public key be used as an HS256 secret. Pin the algorithm.
+- **Tabs share cookies.** Two tabs refreshing at the same moment send the same token twice —
+  rotation calls that theft. We serialise with `navigator.locks` (which only exists on https
+  and localhost; on a plain-http LAN address the in-tab guard is all you get).
+- **JWT logout is a lie for up to `exp`.** Keep access tokens short, or keep a revocation list.
+- `SameSite=Strict` cookies aren't sent when arriving from a link on another site — fine for a
+  refresh cookie, wrong for a session cookie on a site people link to.
+
+### Go deeper
+
+- RFC 8725 *JSON Web Token Best Current Practices* (short, practical)
+- OWASP *Session Management Cheat Sheet* and *JSON Web Token Cheat Sheet*
+- Auth0 blog: *Refresh Token Rotation* (the reuse-detection idea)
+
+### Interview angle
+
+- "JWT or sessions?" → both: stateless short access + stateful long refresh; explain revocation.
+- "Where do you store tokens in an SPA?" → the XSS vs CSRF table above.
+- "How do you log a user out everywhere?" → revoke sessions + short access TTL or a denylist by `sid`.
+
+---
+
+## 5. HTTP vs polling vs WebSockets
+
+*Came up in Phase 1 — how a message reaches the other person instantly. Decision: [ADR 0003](adr/0003-websocket-protocol.md).*
+
+### What it is
+
+HTTP is **request → response**: the server can only answer, never start a conversation.
+To get "the server tells me when something happens":
+
+| Technique | How | Latency | Cost |
+|---|---|---|---|
+| Short polling | ask every N seconds | up to N s | many empty requests |
+| Long polling | ask; server holds the request until there's news (or ~30 s) | low | one held request per client, re-opened after each answer |
+| Server-Sent Events | one long HTTP response the server keeps writing to | low | server → client only |
+| **WebSocket** | HTTP request with `Upgrade: websocket`, then the TCP connection becomes a two-way message pipe | lowest | one open connection per client = **state on the server** |
+
+### Why it matters
+
+A WebSocket makes the server **stateful**: it must remember who is connected *on this
+process*. That's easy with one server and is exactly what breaks with two (Phase 3: user A on
+server 1 can't reach user B on server 2 without something like Redis pub/sub).
+
+### What we chose
+
+- WebSocket for server → client **events only**; every write stays a REST call.
+- Short-lived ticket for auth (browsers can't set headers on `new WebSocket()`).
+- One goroutine per connection writing from a bounded outbox; a slow client gets
+  disconnected instead of slowing everyone down.
+- Ping/pong every 25 s detects dead connections; reconnect uses exponential backoff with jitter.
+- Every (re)connect is followed by a catch-up fetch, because the socket can always miss something.
+
+### In our code
+
+| Code | What it does |
+|---|---|
+| [`backend/internal/realtime/hub.go:80`](../backend/internal/realtime/hub.go#L80) | `Publish` — encode once, never block, evict slow clients |
+| [`backend/internal/realtime/handler.go:51`](../backend/internal/realtime/handler.go#L51) | `serve` — ticket, upgrade, writer loop |
+| [`backend/internal/realtime/handler.go:65`](../backend/internal/realtime/handler.go#L65) | `websocket.Accept` checks `Origin` |
+| [`backend/internal/realtime/handler.go:96`](../backend/internal/realtime/handler.go#L96) | heartbeat: ping, give up after 10 s |
+| [`backend/internal/chat/service.go:355`](../backend/internal/chat/service.go#L355) | publish only **after** the transaction commits |
+| [`web/src/realtime/socket.ts:13`](../web/src/realtime/socket.ts#L13) | `backoffDelay` — 0.5 s → 30 s, with jitter |
+| [`web/src/realtime/events.ts:43`](../web/src/realtime/events.ts#L43) | `catchUp` — runs on every open |
+| [`web/vite.config.ts:19`](../web/vite.config.ts#L19), [`web/Caddyfile:12`](../web/Caddyfile#L12) | the proxies pass the `Upgrade` through |
+
+**See it yourself:** DevTools → Network → filter "WS" → click `/ws` → Messages. Send a message
+from another browser and watch the `message.created` frame arrive.
+
+### Gotchas
+
+- **Publish after commit**, or clients see messages that then roll back.
+- **Jitter**: without it, a server restart makes every client reconnect at the same millisecond.
+- **The first connect needs catch-up too**: anything sent between "page fetched history" and
+  "socket open" is otherwise lost.
+- Browsers can't send WebSocket pings or see a silently dead connection; only the server can
+  ping. Playwright's `setOffline` doesn't even close a localhost socket (found in our e2e tests).
+- Server `WriteTimeout` doesn't apply after the upgrade: `net/http` clears deadlines on hijack.
+
+### Go deeper
+
+- RFC 6455 sections 1 and 5 (the handshake and framing — short and readable)
+- *The WebSocket Handbook* (Ably, free) — scaling chapter
+- Slack engineering: *Real-time Messaging* (how they fan out over WebSockets)
+
+### Interview angle
+
+- "Design WhatsApp/Slack" → connection gateway, fan-out, offline catch-up, ordering, idempotency.
+- "Why not long polling?" → overhead per message, but it works through every proxy — a fallback.
+- "How do you scale WebSockets?" → stateful gateways + pub/sub between them (Phase 3).
+
+---
+
+## 6. Ordering & cursor pagination
+
+*Came up in Phase 1 — message order, history, and catching up. Decision: [ADR 0002](adr/0002-chat-schema.md).*
+
+### What it is
+
+**OFFSET pagination:** `ORDER BY seq DESC LIMIT 50 OFFSET 5000` — the database still walks
+and throws away 5000 rows, and if 3 new messages arrive between pages, everything shifts:
+you see duplicates.
+
+**Cursor (keyset) pagination:** `WHERE seq < 5012 ORDER BY seq DESC LIMIT 50` — "the 50 before
+the last one I have". With an index on `(chat_id, seq)` it's a range scan: page 1 and page
+10,000 cost the same, and new rows don't shift anything.
+
+**Ordering:** a cursor is only as good as its order. An auto-increment id is assigned when a
+transaction *starts writing*, not when it *commits*, so ids can become visible out of order:
+
+```
+tx A: gets id 10 ............................ COMMIT
+tx B:       gets id 11 ... COMMIT
+reader:                         sees 11 → asks "after 11" → never sees 10
+```
+
+### What we chose
+
+A **per-chat `seq`** handed out by `UPDATE chats SET last_seq = last_seq + 1 … RETURNING` inside
+the send transaction. The row lock queues senders *per chat*, so commit order = seq order and
+"after N" is always complete. Pages are cursors on `seq` (`before` to scroll up, `after` to
+catch up), fetching `limit + 1` rows to know `has_more` without `COUNT`. Unread is
+`last_seq − last_read_seq`: no counting at all.
+
+### In our code
+
+| Code | What it does |
+|---|---|
+| [`backend/migrations/0002_chats.up.sql:38`](../backend/migrations/0002_chats.up.sql#L38) | `UNIQUE (chat_id, seq)` — the index every page uses |
+| [`backend/internal/chat/store.go:296`](../backend/internal/chat/store.go#L296) | `Send` — idempotency check, then… |
+| [`backend/internal/chat/store.go:307`](../backend/internal/chat/store.go#L307) | …the row lock that orders sends |
+| [`backend/internal/chat/store.go:373`](../backend/internal/chat/store.go#L373) | `History` — `before` / `after` cursors, `limit + 1` |
+| [`backend/internal/chat/store.go:170`](../backend/internal/chat/store.go#L170) | `ListForUser` — unread by subtraction, one query |
+| [`backend/internal/chat/service.go:96`](../backend/internal/chat/service.go#L96) + [`users/store.go:83`](../backend/internal/users/store.go#L83) | the N+1 fix: collect ids, one `GetMany` |
+| [`backend/internal/chat/store_test.go:96`](../backend/internal/chat/store_test.go#L96) | 20 concurrent sends → seq 1…20, no gaps |
+| [`web/src/chat/queries.ts:42`](../web/src/chat/queries.ts#L42) | the client's cursor: oldest seq on the last page |
+| [`web/src/chat/cache.ts:26`](../web/src/chat/cache.ts#L26) | `upsertMessage` — dedupe and order by seq |
+
+**See it yourself:** `make psql`, then
+`EXPLAIN ANALYZE SELECT * FROM messages WHERE chat_id = 1 AND seq < 100 ORDER BY seq DESC LIMIT 51;`
+→ an *Index Scan* on `messages_chat_id_seq_key`. Try `OFFSET 50000` on a big chat to compare.
+
+### Gotchas
+
+- The cursor column must be **unique** (or use a tuple like `(created_at, id)`).
+- Timestamps are a bad cursor: ties, and clocks differ between servers.
+- A row lock per chat is a throughput ceiling for *one* chat — fine for chat rooms, not for a
+  live stream with thousands of writers (Phase 6).
+- Soft-deleting keeps seq gapless, so clients can tell "deleted" from "missing".
+
+### Go deeper
+
+- Markus Winand, *use-the-index-luke.com* → "Paging Through Results" (and his "no offset" talk)
+- PostgreSQL docs: *Explicit Locking* → row-level locks
+- Designing Data-Intensive Applications, ch. 7 (transactions) and ch. 9 (ordering)
+
+### Interview angle
+
+- "Paginate an infinite feed" → keyset pagination; why OFFSET degrades.
+- "How do you guarantee message order?" → per-conversation sequence; total order is expensive and unnecessary.
+- "How does a client know what it missed?" → monotonically increasing cursor + "after" query.
+
+---
+
+## 7. Password hashing & CPU-heavy work
+
+*Came up in Phase 1 — decision A, then the Part 1.4 load test. Results: [1.4 learnings](phases/phase-1/1.4-measure/learnings.md).*
+
+### What it is
+
+A password hash must be **slow on purpose**: if the database leaks, each guess should cost an
+attacker real CPU time. bcrypt has a **cost** (work factor): cost 12 = 2¹² rounds ≈ 250 ms of
+one core. Each hash includes a random **salt**, so equal passwords get different hashes and
+precomputed tables are useless. (Argon2id is the modern choice: also memory-hard, which hurts GPUs.)
+
+Fast hashes (SHA-256) are right for **random tokens** — 256 random bits can't be guessed no
+matter how fast you hash — and wrong for passwords.
+
+### Why it matters
+
+"Slow on purpose" is a **capacity problem**. Our back-of-envelope said 100 logins at once ≈
+25 CPU-seconds, more than all the chatting. Part 1.4 measured it: a burst of 50 logins took
+all 4 cores for ~3 s, and **every message sent during that time waited up to 3.3 s**, even
+though messages need ~1 ms of CPU. Go shares CPU fairly between goroutines, so a send that
+waits on the DB several times rejoins the back of a queue of 50 bcrypt goroutines each time.
+
+### What we chose
+
+bcrypt cost 12 + a **bulkhead**: at most `GOMAXPROCS − 1` hashes run at once (a buffered
+channel used as a semaphore); the rest queue, and one core always stays free for chat. A login
+queued longer than 10 s gets `503` + `Retry-After` (**load shedding**) instead of piling up.
+
+### In our code
+
+| Code | What it does |
+|---|---|
+| [`backend/internal/auth/password.go:19`](../backend/internal/auth/password.go#L19) | `ValidatePassword` — bcrypt's 72-byte limit |
+| [`backend/internal/auth/password.go:60`](../backend/internal/auth/password.go#L60) | `Hash` — runs inside a slot |
+| [`backend/internal/auth/password.go:83`](../backend/internal/auth/password.go#L83) | `VerifyNobody` — same time for unknown emails |
+| [`backend/internal/auth/password.go:91`](../backend/internal/auth/password.go#L91) | `inSlot` — the semaphore, timeout and cancel |
+| [`backend/internal/app/app.go:56`](../backend/internal/app/app.go#L56) | `hashSlots` — GOMAXPROCS − 1 |
+| [`backend/internal/auth/password_test.go:88`](../backend/internal/auth/password_test.go#L88) | at most N hashes at once, as a test |
+| [`backend/internal/auth/password_test.go:50`](../backend/internal/auth/password_test.go#L50) | timing: unknown email ≈ known email |
+
+### Gotchas
+
+- bcrypt silently **truncates at 72 bytes** — reject longer passwords (or pre-hash).
+- Limits in characters vs bytes: `é` is 2 bytes.
+- `runtime.NumCPU()` ignores container CPU limits; `GOMAXPROCS` respects them (Go 1.25+).
+- A bulkhead trades the slowest login's latency for everyone else's: in our test login p95 went
+  3.45 s → 4.38 s while the *average* login got faster (2.41 s): queueing finishes early arrivals
+  sooner instead of making everyone share CPU and finish together.
+
+### Go deeper
+
+- OWASP *Password Storage Cheat Sheet* (current parameters for Argon2id/bcrypt)
+- *Release It!* (Michael Nygard) — Bulkheads, Shed Load, Fail Fast
+- Go blog / docs: the scheduler and `GOMAXPROCS` in containers
+
+### Interview angle
+
+- "How do you store passwords?" → slow salted hash, cost tuning, pepper, rehash on login.
+- "One expensive endpoint is slowing everything" → bulkhead/semaphore, separate pool, queue + shed, or move it to its own service.
+- "Why did p99 jump while average looked fine?" → contention for a shared resource; find it with a profiler, not by guessing.
+

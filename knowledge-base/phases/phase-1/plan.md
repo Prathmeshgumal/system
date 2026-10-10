@@ -1,5 +1,8 @@
 # Phase 1 — Chat MVP (v0.1): Build Plan
 
+**Status:** ✅ all steps done. Where the build differed from this plan, design.md and the
+learnings say so (e.g. e2e runs through Playwright's `webServer` instead of a shell script).
+
 Spec: [design.md](design.md). Every task is **test first**: write the failing test, watch it
 fail, write the code, watch it pass, commit. One commit per task (small, readable diffs).
 
@@ -56,7 +59,7 @@ into each other or into your dev data.
 | 3.3 | Proxies: Vite `/ws` (`ws: true`), Caddy `handle /ws` | `web/vite.config.ts`, `web/Caddyfile` | smoke test |
 | 3.4 | Web: socket client — connect with ticket, backoff + jitter, status indicator | `web/src/realtime/` | backoff schedule unit test |
 | 3.5 | Web: events → cache updates (append/replace/tombstone, chat list preview + unread, invalidate on structural events), catch-up on reconnect, mark-read when chat is open and visible | `web/src/realtime/`, `web/src/chat/cache.ts` | pure-function tests for every event |
-| 3.6 | E2E: two Chromium users chat live (`scripts/e2e.sh`, Playwright) | `web/e2e/`, `scripts/` | the test itself |
+| 3.6 | E2E: two Chromium users chat live (`make e2e`, Playwright) | `web/e2e/`, `web/playwright.config.ts` | the test itself |
 
 ## Step 4 — Part 1.4 Measure it
 

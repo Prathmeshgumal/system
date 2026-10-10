@@ -19,17 +19,17 @@ Status: ⬜ not started · 🟦 design · 🟨 building · ✅ done
 | Part | Build | Learn | Status |
 |---|---|---|---|
 | 0.1 Dev environment | Monorepo skeleton, docker compose + Postgres, Go health endpoints, React status page, Makefile, Dockerfiles | Containers, multi-stage builds, reverse proxy vs CORS, health checks | ✅ [design](phase-0/0.1-dev-environment/design.md) · [learnings](phase-0/0.1-dev-environment/learnings.md) |
-| 0.2 Backend skeleton | Go layout, config, structured logging, DB pool, migrations, sqlc, integration-test setup | Go project structure, connection pooling, migrations, testing against a real DB | ⬜ |
-| 0.3 Frontend skeleton | Routing, API client, TanStack Query, Tailwind, app layout | Single-page app ↔ API, server state vs UI state | ⬜ |
+| 0.2 Backend skeleton | Go layout, config, structured logging, DB pool, migrations, sqlc, integration-test setup | Go project structure, connection pooling, migrations, testing against a real DB | 🟨 partly built in Phase 1 (config, migrations, test DB); left: sqlc, pool tuning, JSON logs, full graceful shutdown |
+| 0.3 Frontend skeleton | Routing, API client, TanStack Query, Tailwind, app layout | Single-page app ↔ API, server state vs UI state | 🟨 built in Phase 1 (router, API client, TanStack Query, Tailwind, layout); left: the write-up |
 
-## Phase 1 — Chat MVP (v0.1)
+## Phase 1 — Chat MVP (v0.1) · [overview](phase-1/README.md) · [design](phase-1/design.md) · [plan](phase-1/plan.md)
 
 | Part | Build | Learn | Status |
 |---|---|---|---|
-| 1.1 Accounts & auth | Signup, login, logout, refresh tokens, profile, auth pages | Password hashing, JWT vs sessions, cookies, XSS/CSRF | ⬜ |
-| 1.2 Chats over REST | 1:1 + group chats, members/admins, send messages, history, chat list | Data modelling, indexes, cursor pagination, N+1 queries, estimating load | ⬜ |
-| 1.3 Real-time | WebSocket hub, live messages/edits/deletes, unread counts, reconnect + catch-up | WebSocket protocol, goroutine per connection, heartbeats, ordering, idempotency | ⬜ |
-| 1.4 Measure it | k6 test with 100 users, pprof, fix the first bottleneck | Latency percentiles, profiling, flame graphs | ⬜ |
+| 1.1 Accounts & auth | Signup, login, logout, refresh tokens, profile, auth pages | Password hashing, JWT vs sessions, cookies, XSS/CSRF | ✅ [learnings](phase-1/1.1-accounts-auth/learnings.md) (experiments to run) |
+| 1.2 Chats over REST | 1:1 + group chats, members/admins, send messages, history, chat list | Data modelling, indexes, cursor pagination, N+1 queries, estimating load | ✅ [learnings](phase-1/1.2-chats-rest/learnings.md) (experiments to run) |
+| 1.3 Real-time | WebSocket hub, live messages/edits/deletes, unread counts, reconnect + catch-up | WebSocket protocol, goroutine per connection, heartbeats, ordering, idempotency | ✅ [learnings](phase-1/1.3-realtime/learnings.md) (experiments to run) |
+| 1.4 Measure it | k6 test with 100 users, pprof, fix the first bottleneck | Latency percentiles, profiling, flame graphs | ✅ [learnings](phase-1/1.4-measure/learnings.md) — bcrypt burst found + fixed |
 
 ## Phase 2 — Live on the internet (v0.2)
 

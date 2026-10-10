@@ -161,5 +161,6 @@ moving to separate repos later is just copying a folder.
 
 ## Next steps
 
-Work through the parts in [phases/README.md](phases/README.md) in order, starting with **0.1 Dev environment**.
-One git branch per part.
+Work through the parts in [phases/README.md](phases/README.md) in order. 0.1 and Phase 1 are
+built; next are Phase 1's hands-on experiments (in each part's `learnings.md`), what's left of
+0.2 / 0.3, then Phase 2. One git branch per part.
