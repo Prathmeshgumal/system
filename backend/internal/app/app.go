@@ -28,8 +28,8 @@ func New(cfg config.Config, pool *pgxpool.Pool, version string) *App {
 	userStore := users.NewStore(pool)
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.AccessTTL)
 	hub := realtime.NewHub()
-	ws := realtime.NewHandler(hub, tokens)
 	chats := chat.NewService(chat.NewStore(pool), userStore, hub)
+	ws := realtime.NewHandler(hub, tokens, chats)
 
 	mux := http.NewServeMux()
 

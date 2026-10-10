@@ -46,6 +46,13 @@ type Message struct {
 	CreatedAt time.Time  `json:"created_at"`
 	EditedAt  *time.Time `json:"edited_at"`
 	DeletedAt *time.Time `json:"deleted_at"`
+	ReplyToID *int64     `json:"reply_to_id"`
+}
+
+// Reaction is one emoji on one message and who used it, oldest first.
+type Reaction struct {
+	Emoji   string  `json:"emoji"`
+	UserIDs []int64 `json:"user_ids"`
 }
 
 // ListItem is one row of "my chats".
@@ -91,11 +98,12 @@ func scanChat(row pgx.Row) (Chat, error) {
 	return c, err
 }
 
-const messageColumns = `id, chat_id, seq, sender_id, body, client_id::text, created_at, edited_at, deleted_at`
+const messageColumns = `id, chat_id, seq, sender_id, body, client_id::text, created_at, edited_at, deleted_at, reply_to_id`
 
 func scanMessage(row pgx.Row) (Message, error) {
 	var m Message
-	err := row.Scan(&m.ID, &m.ChatID, &m.Seq, &m.SenderID, &m.Body, &m.ClientID, &m.CreatedAt, &m.EditedAt, &m.DeletedAt)
+	err := row.Scan(&m.ID, &m.ChatID, &m.Seq, &m.SenderID, &m.Body, &m.ClientID, &m.CreatedAt, &m.EditedAt, &m.DeletedAt,
+		&m.ReplyToID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Message{}, ErrNotFound
 	}
@@ -178,7 +186,8 @@ func (s *Store) ListForUser(ctx context.Context, userID int64) ([]ListItem, erro
 		       (SELECT count(*) FROM chat_members x WHERE x.chat_id = c.id) AS member_count,
 		       COALESCE((SELECT x.user_id FROM chat_members x
 		                 WHERE c.kind = 'direct' AND x.chat_id = c.id AND x.user_id <> $1 LIMIT 1), 0),
-		       lm.id, lm.seq, lm.sender_id, lm.body, lm.client_id::text, lm.created_at, lm.edited_at, lm.deleted_at
+		       lm.id, lm.seq, lm.sender_id, lm.body, lm.client_id::text, lm.created_at, lm.edited_at, lm.deleted_at,
+		       lm.reply_to_id
 		FROM chat_members m
 		JOIN chats c ON c.id = m.chat_id
 		LEFT JOIN messages lm ON lm.chat_id = c.id AND lm.seq = c.last_seq
@@ -193,19 +202,19 @@ func (s *Store) ListForUser(ctx context.Context, userID int64) ([]ListItem, erro
 	for rows.Next() {
 		var it ListItem
 		var lm struct {
-			ID, Seq, SenderID          *int64
+			ID, Seq, SenderID, ReplyTo *int64
 			Body, ClientID             *string
 			CreatedAt, EditedAt, DelAt *time.Time
 		}
 		err := rows.Scan(&it.ID, &it.Kind, &it.Name, &it.CreatedBy, &it.CreatedAt, &it.LastSeq, &it.LastMessageAt,
 			&it.MyRole, &it.LastReadSeq, &it.Unread, &it.MemberCount, &it.OtherUserID,
-			&lm.ID, &lm.Seq, &lm.SenderID, &lm.Body, &lm.ClientID, &lm.CreatedAt, &lm.EditedAt, &lm.DelAt)
+			&lm.ID, &lm.Seq, &lm.SenderID, &lm.Body, &lm.ClientID, &lm.CreatedAt, &lm.EditedAt, &lm.DelAt, &lm.ReplyTo)
 		if err != nil {
 			return nil, err
 		}
 		if lm.ID != nil { // LEFT JOIN found a message
 			it.LastMessage = &Message{ID: *lm.ID, ChatID: it.ID, Seq: *lm.Seq, SenderID: *lm.SenderID, Body: *lm.Body,
-				ClientID: *lm.ClientID, CreatedAt: *lm.CreatedAt, EditedAt: lm.EditedAt, DeletedAt: lm.DelAt}
+				ClientID: *lm.ClientID, CreatedAt: *lm.CreatedAt, EditedAt: lm.EditedAt, DeletedAt: lm.DelAt, ReplyToID: lm.ReplyTo}
 		}
 		out = append(out, it)
 	}
@@ -296,7 +305,8 @@ func (s *Store) SetRole(ctx context.Context, chatID, userID int64, role string) 
 // Ordering: bumping chats.last_seq takes a row lock on the chat, held until
 // COMMIT. So sends to one chat run one at a time through that line and commit
 // in seq order — which is what makes "give me everything after seq N" safe.
-func (s *Store) Send(ctx context.Context, chatID, senderID int64, body, clientID string) (Message, bool, error) {
+// replyTo (optional) must already be checked to be a message in the same chat.
+func (s *Store) Send(ctx context.Context, chatID, senderID int64, body, clientID string, replyTo *int64) (Message, bool, error) {
 	if m, err := s.byClientID(ctx, senderID, clientID); err == nil {
 		return m, false, nil
 	} else if !errors.Is(err, ErrNotFound) {
@@ -318,9 +328,9 @@ func (s *Store) Send(ctx context.Context, chatID, senderID int64, body, clientID
 			return err
 		}
 		m, err = scanMessage(tx.QueryRow(ctx, `
-			INSERT INTO messages (chat_id, seq, sender_id, body, client_id)
-			VALUES ($1, $2, $3, $4, $5)
-			RETURNING `+messageColumns, chatID, seq, senderID, body, clientID))
+			INSERT INTO messages (chat_id, seq, sender_id, body, client_id, reply_to_id)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			RETURNING `+messageColumns, chatID, seq, senderID, body, clientID, replyTo))
 		if err != nil {
 			return err
 		}
@@ -423,4 +433,69 @@ func (s *Store) MarkRead(ctx context.Context, chatID, userID, seq int64) (int64,
 		return 0, ErrNotFound
 	}
 	return got, err
+}
+
+// MessagesByIDs loads many messages in one query (the quotes for a page of replies).
+func (s *Store) MessagesByIDs(ctx context.Context, ids []int64) (map[int64]Message, error) {
+	out := make(map[int64]Message, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.Query(ctx, `SELECT `+messageColumns+` FROM messages WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return nil, err
+	}
+	msgs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Message, error) { return scanMessage(r) })
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range msgs {
+		out[m.ID] = m
+	}
+	return out, nil
+}
+
+// ---- reactions ----
+
+// AddReaction is idempotent: reacting twice with the same emoji counts once.
+func (s *Store) AddReaction(ctx context.Context, messageID, userID int64, emoji string) error {
+	_, err := s.db.Exec(ctx, `
+		INSERT INTO message_reactions (message_id, user_id, emoji) VALUES ($1, $2, $3)
+		ON CONFLICT DO NOTHING`, messageID, userID, emoji)
+	return err
+}
+
+func (s *Store) RemoveReaction(ctx context.Context, messageID, userID int64, emoji string) error {
+	_, err := s.db.Exec(ctx, `
+		DELETE FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
+		messageID, userID, emoji)
+	return err
+}
+
+// ReactionsFor loads the reactions of many messages in one query, grouped by
+// emoji (oldest emoji first, and within one emoji, who reacted first).
+func (s *Store) ReactionsFor(ctx context.Context, messageIDs []int64) (map[int64][]Reaction, error) {
+	out := make(map[int64][]Reaction, len(messageIDs))
+	if len(messageIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT message_id, emoji, array_agg(user_id ORDER BY created_at, user_id)
+		FROM message_reactions
+		WHERE message_id = ANY($1)
+		GROUP BY message_id, emoji
+		ORDER BY message_id, min(created_at), emoji`, messageIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var r Reaction
+		if err := rows.Scan(&id, &r.Emoji, &r.UserIDs); err != nil {
+			return nil, err
+		}
+		out[id] = append(out[id], r)
+	}
+	return out, rows.Err()
 }

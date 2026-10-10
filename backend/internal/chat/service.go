@@ -42,6 +42,7 @@ type Event struct {
 	ChatID  int64        `json:"chat_id"`
 	Message *MessageView `json:"message,omitempty"`
 	Seq     int64        `json:"seq,omitempty"`
+	UserID  int64        `json:"user_id,omitempty"` // chat.read, typing: who
 }
 
 const (
@@ -52,12 +53,28 @@ const (
 	EventChatUpdated    = "chat.updated"
 	EventChatRemoved    = "chat.removed"
 	EventChatRead       = "chat.read"
+	EventTyping         = "typing" // temporary: relayed, never stored
 )
 
 type MessageView struct {
 	Message
-	Sender *users.Profile `json:"sender"` // nil if the account no longer exists
+	Sender    *users.Profile `json:"sender"` // nil if the account no longer exists
+	Reactions []Reaction     `json:"reactions"`
+	ReplyTo   *Quote         `json:"reply_to"` // the message this one answers, as it is NOW
 }
+
+// Quote is the short version of a replied-to message shown above a reply.
+type Quote struct {
+	ID      int64          `json:"id"`
+	Seq     int64          `json:"seq"`
+	Sender  *users.Profile `json:"sender"`
+	Body    string         `json:"body"` // first 200 characters; "" once deleted
+	Deleted bool           `json:"deleted"`
+}
+
+// Emojis is the fixed set of reactions. A short fixed list keeps validation
+// trivial and the picker simple.
+var Emojis = []string{"👍", "❤️", "😂", "😮", "😢", "🙏"}
 
 type MemberView struct {
 	Member
@@ -328,7 +345,8 @@ func (s *Service) SetRole(ctx context.Context, me, chatID, userID int64, role st
 
 // ---- messages ----
 
-func (s *Service) Send(ctx context.Context, me, chatID int64, body, clientID string) (MessageView, bool, error) {
+// Send stores a message; replyTo (optional) must be a message in the same chat.
+func (s *Service) Send(ctx context.Context, me, chatID int64, body, clientID string, replyTo *int64) (MessageView, bool, error) {
 	body, msg := normalizeBody(body)
 	fields := InvalidError{}
 	if msg != "" {
@@ -337,11 +355,16 @@ func (s *Service) Send(ctx context.Context, me, chatID int64, body, clientID str
 	if !validUUID(clientID) {
 		fields["client_id"] = "must be a UUID"
 	}
+	if replyTo != nil {
+		if orig, err := s.store.Message(ctx, *replyTo); err != nil || orig.ChatID != chatID {
+			fields["reply_to_id"] = "must be a message in this chat"
+		}
+	}
 	if len(fields) > 0 {
 		return MessageView{}, false, fields
 	}
 
-	m, created, err := s.store.Send(ctx, chatID, me, body, clientID)
+	m, created, err := s.store.Send(ctx, chatID, me, body, clientID, replyTo)
 	if err != nil {
 		return MessageView{}, false, err
 	}
@@ -396,14 +419,63 @@ func (s *Service) Delete(ctx context.Context, me, messageID int64) (MessageView,
 	return v, nil
 }
 
-// MarkRead also tells my OTHER tabs, so their unread badges clear too.
+// MarkRead moves my read marker and tells every member: my other tabs clear
+// their unread badge, everyone else updates read receipts (✓✓, "Seen by N").
+// That's one event per member per read — write amplification (Note 8).
 func (s *Service) MarkRead(ctx context.Context, me, chatID, seq int64) (int64, error) {
 	got, err := s.store.MarkRead(ctx, chatID, me, seq)
 	if err != nil {
 		return 0, err
 	}
-	s.pub.Publish([]int64{me}, Event{Type: EventChatRead, ChatID: chatID, Seq: got})
+	s.publishToMembers(ctx, chatID, Event{Type: EventChatRead, ChatID: chatID, Seq: got, UserID: me})
 	return got, nil
+}
+
+// React adds (on = true) or removes my emoji on a message. Any member may react.
+func (s *Service) React(ctx context.Context, me, messageID int64, emoji string, on bool) (MessageView, error) {
+	if !slices.Contains(Emojis, emoji) {
+		return MessageView{}, InvalidError{"emoji": "must be one of " + strings.Join(Emojis, " ")}
+	}
+	m, err := s.store.Message(ctx, messageID)
+	if err != nil {
+		return MessageView{}, err
+	}
+	if _, err := s.store.Member(ctx, m.ChatID, me); err != nil {
+		return MessageView{}, err
+	}
+	if m.DeletedAt != nil {
+		return MessageView{}, ErrDeleted
+	}
+	if on {
+		err = s.store.AddReaction(ctx, messageID, me, emoji)
+	} else {
+		err = s.store.RemoveReaction(ctx, messageID, me, emoji)
+	}
+	if err != nil {
+		return MessageView{}, err
+	}
+	v, err := s.view(ctx, m)
+	if err != nil {
+		return MessageView{}, err
+	}
+	s.publishToMembers(ctx, m.ChatID, Event{Type: EventMessageUpdated, ChatID: m.ChatID, Message: &v})
+	return v, nil
+}
+
+// Typing relays "me is typing in chatID" to the other members. Nothing is
+// stored: a lost typing event costs nothing, a stored one would cost a write
+// per keystroke burst.
+func (s *Service) Typing(ctx context.Context, me, chatID int64) error {
+	if _, err := s.store.Member(ctx, chatID, me); err != nil {
+		return err
+	}
+	ids, err := s.store.MemberIDs(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	others := slices.DeleteFunc(ids, func(id int64) bool { return id == me })
+	s.pub.Publish(others, Event{Type: EventTyping, ChatID: chatID, UserID: me})
+	return nil
 }
 
 // ---- helpers ----
@@ -476,28 +548,80 @@ func (s *Service) view(ctx context.Context, m Message) (MessageView, error) {
 	return vs[0], nil
 }
 
+// views turns stored messages into what clients see, for a whole page at a
+// time: reactions (1 query), quoted messages (1 query) and every sender's
+// profile (1 query) — 3 queries whatever the page size.
 func (s *Service) views(ctx context.Context, msgs []Message) ([]MessageView, error) {
 	ids := make([]int64, 0, len(msgs))
+	var replyIDs []int64
 	for _, m := range msgs {
-		ids = append(ids, m.SenderID)
+		ids = append(ids, m.ID)
+		if m.ReplyToID != nil {
+			replyIDs = append(replyIDs, *m.ReplyToID)
+		}
 	}
-	profiles, err := s.users.GetMany(ctx, uniq(ids))
+	reactions, err := s.store.ReactionsFor(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
+	quoted, err := s.store.MessagesByIDs(ctx, uniq(replyIDs))
+	if err != nil {
+		return nil, err
+	}
+
+	var senders []int64
+	for _, m := range msgs {
+		senders = append(senders, m.SenderID)
+	}
+	for _, q := range quoted {
+		senders = append(senders, q.SenderID)
+	}
+	profiles, err := s.users.GetMany(ctx, uniq(senders))
+	if err != nil {
+		return nil, err
+	}
+
 	out := make([]MessageView, 0, len(msgs))
 	for _, m := range msgs {
-		out = append(out, *view(m, profiles))
+		v := view(m, profiles)
+		if r, ok := reactions[m.ID]; ok {
+			v.Reactions = r
+		}
+		if m.ReplyToID != nil {
+			if q, ok := quoted[*m.ReplyToID]; ok {
+				v.ReplyTo = quote(q, profiles)
+			}
+		}
+		out = append(out, *v)
 	}
 	return out, nil
 }
 
+// view is the cheap version used for previews: sender only.
 func view(m Message, profiles map[int64]users.Profile) *MessageView {
-	v := &MessageView{Message: m}
+	v := &MessageView{Message: m, Reactions: []Reaction{}}
 	if p, ok := profiles[m.SenderID]; ok {
 		v.Sender = &p
 	}
 	return v
+}
+
+func quote(m Message, profiles map[int64]users.Profile) *Quote {
+	q := &Quote{ID: m.ID, Seq: m.Seq, Deleted: m.DeletedAt != nil}
+	if p, ok := profiles[m.SenderID]; ok {
+		q.Sender = &p
+	}
+	if !q.Deleted {
+		q.Body = truncateRunes(m.Body, 200)
+	}
+	return q
+}
+
+func truncateRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return string([]rune(s)[:n]) + "…"
 }
 
 func normalizeBody(s string) (string, string) {

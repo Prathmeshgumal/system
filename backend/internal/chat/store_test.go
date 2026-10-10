@@ -36,7 +36,7 @@ func (f *fixture) user(name string) int64 {
 
 func (f *fixture) send(chatID, sender int64, body string) chat.Message {
 	f.t.Helper()
-	m, _, err := f.store.Send(f.ctx, chatID, sender, body, newUUID())
+	m, _, err := f.store.Send(f.ctx, chatID, sender, body, newUUID(), nil)
 	if err != nil {
 		f.t.Fatalf("send %q: %v", body, err)
 	}
@@ -105,7 +105,7 @@ func TestSend_SeqIsConsecutiveUnderConcurrency(t *testing.T) {
 			if i%2 == 0 {
 				sender = bob
 			}
-			if _, _, err := f.store.Send(f.ctx, c.ID, sender, fmt.Sprint("msg ", i), newUUID()); err != nil {
+			if _, _, err := f.store.Send(f.ctx, c.ID, sender, fmt.Sprint("msg ", i), newUUID(), nil); err != nil {
 				t.Error(err)
 			}
 		})
@@ -132,11 +132,11 @@ func TestSend_RetryWithSameClientIDReturnsOriginal(t *testing.T) {
 	c, _, _ := f.store.FindOrCreateDirect(f.ctx, alice, bob)
 	cid := newUUID()
 
-	m1, created1, err := f.store.Send(f.ctx, c.ID, alice, "hello", cid)
+	m1, created1, err := f.store.Send(f.ctx, c.ID, alice, "hello", cid, nil)
 	if err != nil || !created1 {
 		t.Fatal(err)
 	}
-	m2, created2, err := f.store.Send(f.ctx, c.ID, alice, "hello", cid)
+	m2, created2, err := f.store.Send(f.ctx, c.ID, alice, "hello", cid, nil)
 	if err != nil || created2 || m2.ID != m1.ID {
 		t.Fatalf("retry = %+v created=%v err=%v", m2, created2, err)
 	}
@@ -146,7 +146,7 @@ func TestSend_RetryWithSameClientIDReturnsOriginal(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 10 {
 		wg.Go(func() {
-			if _, _, err := f.store.Send(f.ctx, c.ID, alice, "again", cid2); err != nil {
+			if _, _, err := f.store.Send(f.ctx, c.ID, alice, "again", cid2, nil); err != nil {
 				t.Error(err)
 			}
 		})
@@ -162,7 +162,7 @@ func TestSend_NonMemberGetsNotFound(t *testing.T) {
 	f := setup(t)
 	alice, bob, eve := f.user("alice"), f.user("bob"), f.user("eve")
 	c, _, _ := f.store.FindOrCreateDirect(f.ctx, alice, bob)
-	if _, _, err := f.store.Send(f.ctx, c.ID, eve, "hi", newUUID()); !errors.Is(err, chat.ErrNotFound) {
+	if _, _, err := f.store.Send(f.ctx, c.ID, eve, "hi", newUUID(), nil); !errors.Is(err, chat.ErrNotFound) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -337,4 +337,56 @@ func seqs(p chat.MessagePage) string {
 		out += fmt.Sprint(m.Seq)
 	}
 	return out
+}
+
+func TestReactions_AddIsIdempotentAndGroupsByEmoji(t *testing.T) {
+	f := setup(t)
+	alice, bob := f.user("alice"), f.user("bob")
+	c, _, _ := f.store.FindOrCreateDirect(f.ctx, alice, bob)
+	m1, m2 := f.send(c.ID, alice, "one"), f.send(c.ID, alice, "two")
+
+	for _, r := range []struct {
+		msg  int64
+		user int64
+		e    string
+	}{{m1.ID, bob, "👍"}, {m1.ID, alice, "👍"}, {m1.ID, bob, "👍"}, {m1.ID, bob, "😂"}, {m2.ID, bob, "❤️"}} {
+		if err := f.store.AddReaction(f.ctx, r.msg, r.user, r.e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := f.store.ReactionsFor(f.ctx, []int64{m1.ID, m2.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r1 := got[m1.ID]
+	if len(r1) != 2 || r1[0].Emoji != "👍" || len(r1[0].UserIDs) != 2 || r1[1].Emoji != "😂" {
+		t.Errorf("message 1 reactions = %+v (adding 👍 twice must count once, oldest emoji first)", r1)
+	}
+	if len(got[m2.ID]) != 1 {
+		t.Errorf("message 2 reactions = %+v", got[m2.ID])
+	}
+
+	if err := f.store.RemoveReaction(f.ctx, m1.ID, bob, "👍"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = f.store.ReactionsFor(f.ctx, []int64{m1.ID})
+	if len(got[m1.ID]) != 2 || len(got[m1.ID][0].UserIDs) != 1 || got[m1.ID][0].UserIDs[0] != alice {
+		t.Errorf("after removing bob's 👍: %+v", got[m1.ID])
+	}
+}
+
+func TestReplies_StoredAndLoadable(t *testing.T) {
+	f := setup(t)
+	alice, bob := f.user("alice"), f.user("bob")
+	c, _, _ := f.store.FindOrCreateDirect(f.ctx, alice, bob)
+	orig := f.send(c.ID, alice, "lunch?")
+
+	reply, _, err := f.store.Send(f.ctx, c.ID, bob, "yes!", newUUID(), &orig.ID)
+	if err != nil || reply.ReplyToID == nil || *reply.ReplyToID != orig.ID {
+		t.Fatalf("reply = %+v, %v", reply, err)
+	}
+	got, err := f.store.MessagesByIDs(f.ctx, []int64{orig.ID, 999999})
+	if err != nil || len(got) != 1 || got[orig.ID].Body != "lunch?" {
+		t.Fatalf("MessagesByIDs = %+v, %v", got, err)
+	}
 }

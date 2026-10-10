@@ -29,6 +29,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/chats/{id}/read", httpx.Handle(h.markRead))
 	mux.Handle("PATCH /api/messages/{id}", httpx.Handle(h.edit))
 	mux.Handle("DELETE /api/messages/{id}", httpx.Handle(h.delete))
+	mux.Handle("PUT /api/messages/{id}/reactions/{emoji}", httpx.Handle(h.react(true)))
+	mux.Handle("DELETE /api/messages/{id}/reactions/{emoji}", httpx.Handle(h.react(false)))
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
@@ -215,13 +217,14 @@ func (h *Handler) send(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var in struct {
-		Body     string `json:"body"`
-		ClientID string `json:"client_id"`
+		Body      string `json:"body"`
+		ClientID  string `json:"client_id"`
+		ReplyToID *int64 `json:"reply_to_id"`
 	}
 	if err := httpx.ReadJSON(w, r, &in); err != nil {
 		return err
 	}
-	m, created, err := h.svc.Send(r.Context(), httpx.UserID(r.Context()), id, in.Body, in.ClientID)
+	m, created, err := h.svc.Send(r.Context(), httpx.UserID(r.Context()), id, in.Body, in.ClientID, in.ReplyToID)
 	if err != nil {
 		return toHTTP(err)
 	}
@@ -282,6 +285,23 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 	}
 	httpx.WriteJSON(w, http.StatusOK, m)
 	return nil
+}
+
+// react: PUT adds my emoji (idempotent), DELETE removes it. The emoji is in
+// the path, URL-encoded by the client (encodeURIComponent).
+func (h *Handler) react(on bool) httpx.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		id, err := pathID(r, "id")
+		if err != nil {
+			return err
+		}
+		m, err := h.svc.React(r.Context(), httpx.UserID(r.Context()), id, r.PathValue("emoji"), on)
+		if err != nil {
+			return toHTTP(err)
+		}
+		httpx.WriteJSON(w, http.StatusOK, m)
+		return nil
+	}
 }
 
 func pathID(r *http.Request, name string) (int64, error) {

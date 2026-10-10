@@ -16,6 +16,7 @@ type event struct {
 	Type    string   `json:"type"`
 	ChatID  int64    `json:"chat_id"`
 	Seq     int64    `json:"seq"`
+	UserID  int64    `json:"user_id"`
 	Message *msgResp `json:"message"`
 }
 
