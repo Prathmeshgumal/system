@@ -31,7 +31,7 @@ export function UserSearch({ onPick, exclude = [] }: { onPick: (p: Profile) => v
               onClick={() => onPick(p)}
               className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
             >
-              <Avatar name={p.display_name} id={p.id} size="sm" />
+              <Avatar name={p.display_name} id={p.id} url={p.avatar_url} size="sm" />
               <span>
                 <span className="block font-medium">{p.display_name}</span>
                 <span className="block text-sm text-zinc-500">@{p.username}</span>

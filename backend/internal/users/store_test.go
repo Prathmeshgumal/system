@@ -111,3 +111,27 @@ func usernames(ps []users.Profile) string {
 	}
 	return out
 }
+
+func TestStore_SetAvatarReturnsThePreviousKey(t *testing.T) {
+	s := users.NewStore(testdb.New(t))
+	ctx := context.Background()
+	u := newUser(t, s, "alice")
+
+	k1, k2 := "avatars/1/a.jpg", "avatars/1/b.jpg"
+	got, old, err := s.SetAvatar(ctx, u.ID, &k1)
+	if err != nil || old != nil || got.AvatarURL == nil || *got.AvatarURL != "/media/avatars/1/a.jpg" {
+		t.Fatalf("first = %+v old=%v err=%v", got.Profile, old, err)
+	}
+	_, old, _ = s.SetAvatar(ctx, u.ID, &k2)
+	if old == nil || *old != k1 {
+		t.Errorf("old = %v, want %s", old, k1)
+	}
+	got, old, _ = s.SetAvatar(ctx, u.ID, nil)
+	if got.AvatarURL != nil || old == nil || *old != k2 {
+		t.Errorf("remove: url=%v old=%v", got.AvatarURL, old)
+	}
+	many, _ := s.GetMany(ctx, []int64{u.ID})
+	if many[u.ID].AvatarURL != nil {
+		t.Error("GetMany still shows a removed picture")
+	}
+}

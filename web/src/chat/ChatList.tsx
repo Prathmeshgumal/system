@@ -25,7 +25,7 @@ export function ChatList({ chats, me }: { chats: Chat[]; me: number }) {
               `flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 ${isActive ? 'bg-zinc-100 dark:bg-zinc-800' : ''}`
             }
           >
-            <Avatar name={chatTitle(c)} id={c.kind === 'direct' ? (c.other_user?.id ?? c.id) : c.id} />
+            <Avatar name={chatTitle(c)} id={c.kind === 'direct' ? (c.other_user?.id ?? c.id) : c.id} url={c.other_user?.avatar_url} />
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline justify-between gap-2">
                 <span className="truncate font-medium">{chatTitle(c)}</span>

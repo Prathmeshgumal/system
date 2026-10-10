@@ -26,6 +26,20 @@ type Profile struct {
 	DisplayName string    `json:"display_name"`
 	Bio         string    `json:"bio"`
 	CreatedAt   time.Time `json:"created_at"`
+	AvatarURL   *string   `json:"avatar_url"` // nil = no picture (the app shows initials)
+	AvatarKey   *string   `json:"-"`          // where the picture is in object storage
+}
+
+// MediaPrefix is where the API serves stored files (see users.MediaHandler).
+const MediaPrefix = "/media/"
+
+func (p *Profile) setAvatar(key *string) {
+	p.AvatarKey = key
+	p.AvatarURL = nil
+	if key != nil {
+		u := MediaPrefix + *key
+		p.AvatarURL = &u
+	}
 }
 
 // User is the full row. Only its owner sees Email; nobody sees PasswordHash.
@@ -50,15 +64,34 @@ type Store struct {
 
 func NewStore(db *pgxpool.Pool) *Store { return &Store{db: db} }
 
-const userColumns = `id, username, display_name, bio, created_at, email, password_hash`
+const (
+	profileColumns = `id, username, display_name, bio, created_at, avatar_key`
+	userColumns    = profileColumns + `, email, password_hash`
+)
+
+func scanProfile(row pgx.Row) (Profile, error) {
+	var p Profile
+	var key *string
+	if err := row.Scan(&p.ID, &p.Username, &p.DisplayName, &p.Bio, &p.CreatedAt, &key); err != nil {
+		return Profile{}, err
+	}
+	p.setAvatar(key)
+	return p, nil
+}
 
 func scanUser(row pgx.Row) (User, error) {
 	var u User
-	err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Bio, &u.CreatedAt, &u.Email, &u.PasswordHash)
+	var key *string
+	err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Bio, &u.CreatedAt, &key, &u.Email, &u.PasswordHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
+	u.setAvatar(key)
 	return u, err
+}
+
+func collectProfiles(rows pgx.Rows) ([]Profile, error) {
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Profile, error) { return scanProfile(r) })
 }
 
 func (s *Store) Create(ctx context.Context, n NewUser) (User, error) {
@@ -86,11 +119,11 @@ func (s *Store) GetMany(ctx context.Context, ids []int64) (map[int64]Profile, er
 		return out, nil
 	}
 	rows, err := s.db.Query(ctx, `
-		SELECT id, username, display_name, bio, created_at FROM users WHERE id = ANY($1)`, ids)
+		SELECT `+profileColumns+` FROM users WHERE id = ANY($1)`, ids)
 	if err != nil {
 		return nil, err
 	}
-	profiles, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Profile])
+	profiles, err := collectProfiles(rows)
 	if err != nil {
 		return nil, err
 	}
@@ -103,14 +136,14 @@ func (s *Store) GetMany(ctx context.Context, ids []int64) (map[int64]Profile, er
 // Search finds users whose username starts with prefix (already normalized).
 func (s *Store) Search(ctx context.Context, prefix string, excludeID int64, limit int) ([]Profile, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT id, username, display_name, bio, created_at FROM users
+		SELECT `+profileColumns+` FROM users
 		WHERE username LIKE $1 AND id <> $2
 		ORDER BY username
 		LIMIT $3`, searchPattern(prefix), excludeID, limit)
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, pgx.RowToStructByPos[Profile])
+	return collectProfiles(rows)
 }
 
 func (s *Store) Update(ctx context.Context, id int64, p ProfileUpdate) (User, error) {
@@ -140,4 +173,30 @@ func uniqueErr(err error) error {
 		return ErrUsernameTaken
 	}
 	return fmt.Errorf("unexpected unique violation: %w", err)
+}
+
+// SetAvatar points the user at a new picture (or none, with nil) and returns
+// the previous key, so the caller can delete the old file. One statement: the
+// CTE locks the row, so two uploads at once can't both see the same "old" key.
+//
+// The CTE must be joined in FROM. Referenced only in RETURNING, Postgres runs it
+// after the UPDATE — and a locking read skips rows the same statement changed.
+func (s *Store) SetAvatar(ctx context.Context, id int64, key *string) (User, *string, error) {
+	var u User
+	var newKey, old *string
+	err := s.db.QueryRow(ctx, `
+		WITH old AS (SELECT id, avatar_key FROM users WHERE id = $1 FOR UPDATE)
+		UPDATE users u SET avatar_key = $2, updated_at = now()
+		FROM old WHERE u.id = old.id
+		RETURNING u.id, u.username, u.display_name, u.bio, u.created_at, u.avatar_key,
+		          u.email, u.password_hash, old.avatar_key`, id, key).
+		Scan(&u.ID, &u.Username, &u.DisplayName, &u.Bio, &u.CreatedAt, &newKey, &u.Email, &u.PasswordHash, &old)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, nil, ErrNotFound
+	}
+	if err != nil {
+		return User{}, nil, err
+	}
+	u.setAvatar(newKey)
+	return u, old, nil
 }

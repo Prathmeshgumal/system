@@ -34,8 +34,11 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.CookieSecure {
 		t.Error("CookieSecure should default to false (http://localhost in dev)")
 	}
-	if cfg.PprofAddr != "" {
-		t.Error("pprof must be off by default")
+	if cfg.PprofAddr != "" || cfg.MetricsAddr != "" {
+		t.Error("pprof and metrics must be off by default")
+	}
+	if cfg.LogFormat != "text" || cfg.S3.Endpoint != "" || cfg.S3.Bucket != "relay-media" || cfg.S3.Region != "us-east-1" {
+		t.Errorf("defaults: %+v", cfg)
 	}
 }
 
@@ -61,6 +64,9 @@ func TestLoad_Errors(t *testing.T) {
 		"short JWT_SECRET": func(m map[string]string) { m["JWT_SECRET"] = "too-short" },
 		"bad BCRYPT_COST":  func(m map[string]string) { m["BCRYPT_COST"] = "99" },
 		"bad bool":         func(m map[string]string) { m["COOKIE_SECURE"] = "maybe" },
+		"bad S3 bool":      func(m map[string]string) { m["S3_USE_SSL"] = "yep" },
+		"bad log format":   func(m map[string]string) { m["LOG_FORMAT"] = "xml" },
+		"half S3 keys":     func(m map[string]string) { m["S3_ACCESS_KEY"] = "only-this" },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {

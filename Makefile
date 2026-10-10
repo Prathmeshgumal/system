@@ -11,8 +11,8 @@ export
 help: ## List all commands
 	@grep -hE '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-9s %s\n", $$1, $$2}'
 
-db: ## Start only Postgres in Docker
-	docker compose up -d --wait postgres
+db: ## Start Postgres and object storage in Docker
+	docker compose up -d --wait postgres storage
 
 api: ## Run the Go API with live reload
 	cd backend && go tool air

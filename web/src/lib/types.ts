@@ -6,6 +6,7 @@ export type Profile = {
   display_name: string
   bio: string
   created_at: string
+  avatar_url?: string | null // "/media/avatars/…", or null: show initials
 }
 
 /** My own account: a Profile plus my email. */

@@ -86,7 +86,7 @@ function ChatViewInner({ id }: { id: number }) {
           <Link to="/" className="text-zinc-500 md:hidden" aria-label="Back">
             ←
           </Link>
-          <Avatar name={title} id={c.kind === 'direct' ? (c.other_user?.id ?? c.id) : c.id} size="sm" />
+          <Avatar name={title} id={c.kind === 'direct' ? (c.other_user?.id ?? c.id) : c.id} url={c.other_user?.avatar_url} size="sm" />
           <div className="min-w-0 flex-1">
             <h1 className="truncate font-semibold">{title}</h1>
             <p className="truncate text-xs text-zinc-500">

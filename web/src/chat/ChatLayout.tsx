@@ -33,7 +33,7 @@ export function ChatLayout() {
       >
         <header className="flex items-center gap-3 border-b border-zinc-200 p-3 dark:border-zinc-800">
           <Link to="/profile" className="flex min-w-0 flex-1 items-center gap-3" title="Your profile">
-            <Avatar name={me.display_name} id={me.id} size="sm" />
+            <Avatar name={me.display_name} id={me.id} url={me.avatar_url} size="sm" />
             <span className="min-w-0">
               <span className="block truncate font-semibold">{me.display_name}</span>
               <ConnectionStatus />

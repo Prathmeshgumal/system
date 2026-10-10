@@ -79,7 +79,7 @@ export function GroupInfo({ chat, onClose }: { chat: Chat; onClose: () => void }
         <ul className="space-y-2">
           {chat.members?.map((m) => (
             <li key={m.user_id} className="flex items-center gap-2">
-              <Avatar name={m.user.display_name} id={m.user_id} size="sm" />
+              <Avatar name={m.user.display_name} id={m.user_id} url={m.user.avatar_url} size="sm" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">
                   {m.user.display_name}

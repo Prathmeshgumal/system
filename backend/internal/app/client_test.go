@@ -27,7 +27,7 @@ func newServer(t *testing.T, configure ...func(*http.Server)) *httptest.Server {
 		RefreshTTL: 24 * time.Hour,
 		BcryptCost: 4, // bcrypt.MinCost: tests don't need slow hashing
 	}
-	srv := httptest.NewUnstartedServer(app.New(cfg, pool, "test").Handler)
+	srv := httptest.NewUnstartedServer(app.New(cfg, pool, "test", nil).Handler)
 	for _, f := range configure {
 		f(srv.Config)
 	}

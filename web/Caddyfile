@@ -13,6 +13,20 @@
 		reverse_proxy api:8080
 	}
 
+	# Profile pictures: served by the API (which reads them from storage)…
+	handle /media/* {
+		reverse_proxy api:8080
+	}
+
+	# …and uploaded by the browser straight to storage (presigned POST).
+	# handle_path strips /storage, so /storage/relay-media/ → storage:9000/relay-media/.
+	handle_path /storage/* {
+		request_body {
+			max_size 2MB
+		}
+		reverse_proxy storage:9000
+	}
+
 	# Everything else is the React app. Unknown paths fall back to index.html
 	# so client-side routes (Part 0.3) work on refresh.
 	handle {

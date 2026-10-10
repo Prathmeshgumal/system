@@ -16,6 +16,7 @@ import (
 	"relay/internal/health"
 	"relay/internal/httpx"
 	"relay/internal/realtime"
+	"relay/internal/storage"
 	"relay/internal/users"
 )
 
@@ -24,7 +25,8 @@ type App struct {
 	Hub     *realtime.Hub // main calls Hub.Shutdown to close WebSockets on exit
 }
 
-func New(cfg config.Config, pool *pgxpool.Pool, version string) *App {
+// New builds the server. files may be nil: profile pictures are then off.
+func New(cfg config.Config, pool *pgxpool.Pool, version string, files storage.Storage) *App {
 	userStore := users.NewStore(pool)
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.AccessTTL)
 	hub := realtime.NewHub()
@@ -38,11 +40,14 @@ func New(cfg config.Config, pool *pgxpool.Pool, version string) *App {
 	auth.NewHandler(userStore, auth.NewSessions(pool, cfg.RefreshTTL), tokens,
 		auth.NewHasher(cfg.BcryptCost, hashSlots()), cfg.CookieSecure).Register(mux)
 	ws.RegisterPublic(mux)
+	avatars := users.NewAvatarHandler(userStore, files)
+	avatars.RegisterPublic(mux)
 
 	// Everything else under /api needs an access token. Go's mux picks the most
 	// specific pattern, so /api/auth/… and /api/status above still win.
 	private := http.NewServeMux()
 	users.NewHandler(userStore).Register(private)
+	avatars.RegisterPrivate(private)
 	chat.NewHandler(chats).Register(private)
 	ws.RegisterPrivate(private)
 	mux.Handle("/api/", tokens.RequireUser(private))

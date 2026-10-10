@@ -17,6 +17,9 @@ export default defineConfig({
     proxy: {
       '/api': { target: 'http://localhost:8080', changeOrigin: false },
       '/ws': { target: 'ws://localhost:8080', ws: true, changeOrigin: false },
+      // Profile pictures (Part 2.2): served by Go, uploaded straight to storage.
+      '/media': { target: 'http://localhost:8080', changeOrigin: false },
+      '/storage': { target: 'http://localhost:9000', rewrite: (p) => p.replace(/^\/storage/, '') },
     },
   },
   test: {

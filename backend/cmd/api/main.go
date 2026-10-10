@@ -20,6 +20,7 @@ import (
 	"relay/internal/config"
 	"relay/internal/db"
 	"relay/internal/health"
+	"relay/internal/storage"
 )
 
 // version is replaced at build time: go build -ldflags "-X main.version=<git sha>".
@@ -66,7 +67,11 @@ func run() error {
 	}
 	defer pool.Close()
 
-	a := app.New(cfg, pool, version)
+	files, err := openStorage(ctx, cfg.S3)
+	if err != nil {
+		return err
+	}
+	a := app.New(cfg, pool, version, files)
 
 	if cfg.PprofAddr != "" {
 		go servePprof(cfg.PprofAddr)
@@ -124,6 +129,28 @@ func servePprof(addr string) {
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		slog.Error("pprof stopped", "err", err)
 	}
+}
+
+// openStorage connects to object storage for profile pictures, or returns nil
+// (pictures off) when S3_ENDPOINT isn't set.
+func openStorage(ctx context.Context, cfg config.S3Config) (storage.Storage, error) {
+	if cfg.Endpoint == "" {
+		slog.Warn("S3_ENDPOINT not set: profile pictures are off")
+		return nil, nil
+	}
+	s3, err := storage.New(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.CreateBucket {
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		if err := s3.EnsureBucket(ctx); err != nil {
+			// Storage being down at startup shouldn't stop chat; uploads will fail until it's back.
+			slog.Warn("could not create the storage bucket", "bucket", cfg.Bucket, "err", err)
+		}
+	}
+	return s3, nil
 }
 
 func migrateOnly() error {
