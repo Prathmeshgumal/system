@@ -38,7 +38,7 @@ Status: ⬜ not started · 🟦 design · 🟨 building · ✅ done
 | 2.1 Richer chat | Typing, read receipts, reactions, replies, browser notifications, dark mode | Temporary vs stored events, write amplification | ✅ [learnings](phase-2/2.1-richer-chat/learnings.md) (experiments to run) |
 | 2.2 Media | Profile pictures via S3 presigned uploads (RustFS locally — MinIO images are discontinued) | Object storage, presigned URLs, why files don't go in the DB | ✅ [learnings](phase-2/2.2-media/learnings.md) (experiments to run) |
 | 2.3 First AWS deploy | Guard-rails, IAM, VPC, EC2, Terraform, Caddy HTTPS, `make deploy` | Networking basics, DNS, TLS, infrastructure-as-code | 🟨 [learnings](phase-2/2.3-aws-deploy/learnings.md) — built and tested locally; `terraform apply` is yours |
-| 2.4 Observability | Prometheus + Grafana + Loki, k6 against AWS, find the breaking point | RED/USE metrics, bottleneck hunting, capacity limits | ✅ [learnings](phase-2/2.4-observability/learnings.md) — measured on a t3.micro-sized stack; AWS run is yours |
+| 2.4 Observability | Prometheus + Grafana + Loki, k6 against AWS, find the breaking point | RED/USE metrics, bottleneck hunting, capacity limits | 🟨 stack built; soak needs a re-run, breakpoint tests and write-up left — see [HANDOFF.md](../HANDOFF.md) |
 
 > Part 0.2 was built separately on `part/0.2-backend-skeleton` and overlaps Phases 1–2's
 > foundations: see [merging-0.2.md](merging-0.2.md) for what conflicts and a proposed path.

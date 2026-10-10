@@ -14,6 +14,6 @@ Runbook [deploy/README.md](../../../deploy/README.md) · Capacity [one micro ins
 | 2.1 Richer chat | Typing, read receipts, reactions, replies, notifications + title badge, dark mode | Temporary vs stored events, write amplification | ✅ built — experiments are yours | [learnings](2.1-richer-chat/learnings.md) |
 | 2.2 Media | Profile pictures: presigned POST to S3 / RustFS, served from `/media` | Object storage, presigned URLs, why files don't go in the DB | ✅ built — experiments are yours | [learnings](2.2-media/learnings.md) |
 | 2.3 First AWS deploy | Terraform (VPC, EC2, S3, IAM, budget), production compose, Caddy HTTPS + CSP, `make deploy` | Networking basics, DNS, TLS, IaC | 🟨 built and tested locally over SSH — **`terraform apply` + first real deploy are yours** | [learnings](2.3-aws-deploy/learnings.md) |
-| 2.4 Observability | Prometheus metrics, JSON logs → Loki, provisioned Grafana dashboard, soak + breakpoint tests | RED/USE, cardinality, capacity limits | ✅ built and measured on a t3.micro-sized local stack — **AWS run is yours** | [learnings](2.4-observability/learnings.md) |
+| 2.4 Observability | Prometheus metrics, JSON logs → Loki, provisioned Grafana dashboard, soak + breakpoint tests | RED/USE, cardinality, capacity limits | 🟨 built; soak re-run, breakpoint tests and write-up left ([handoff](../../HANDOFF.md)) — **AWS run is yours** | [learnings](2.4-observability/learnings.md) |
 
 **Ends with:** v0.2 — see [01-app-versions.md](../../01-app-versions.md#v02--live-on-the-internet-end-of-phase-2).

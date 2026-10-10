@@ -4,6 +4,7 @@ Everything we design and decide lives here, next to the code.
 
 | Folder / file | What goes in it |
 |---|---|
+| `HANDOFF.md` | Where the work stopped and what to do next — read first |
 | `00-roadmap.md` | The full plan, phase by phase, and the $0 cost plan |
 | `01-app-versions.md` | What the app can do after each phase |
 | `Notes.md` | Concepts to revisit in free time — one short note per concept we discuss |
