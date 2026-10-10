@@ -2,8 +2,11 @@ package httpx
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -102,5 +105,25 @@ func TestLog_RecordsStatusAndKeepsUnwrap(t *testing.T) {
 	}
 	if !sawUnwrap {
 		t.Error("wrapped writer must expose Unwrap so WebSocket upgrades can hijack the connection")
+	}
+}
+
+func TestHandle_ClientGoneIsNotAnError(t *testing.T) {
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(prev)
+
+	h := Handle(func(w http.ResponseWriter, r *http.Request) error {
+		return fmt.Errorf("query: %w", context.Canceled) // the browser navigated away mid-request
+	})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+
+	if strings.Contains(logs.String(), "ERROR") {
+		t.Errorf("a cancelled request was logged as an error: %s", logs.String())
+	}
+	if rec.Code != StatusClientClosed {
+		t.Errorf("status = %d, want %d", rec.Code, StatusClientClosed)
 	}
 }

@@ -9,6 +9,7 @@
 package httpx
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -60,9 +61,18 @@ func Handle(fn HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// StatusClientClosed is nginx's convention for "the client hung up before we
+// answered". Nobody receives it; it only shows up in our request log.
+const StatusClientClosed = 499
+
 // WriteError writes err as JSON. Errors that aren't *Error are bugs or outages:
 // they're logged in full, and the client gets a bare 500 (no internals leaked).
 func WriteError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, context.Canceled) {
+		// The browser aborted (closed the tab, switched chats). Not our bug.
+		w.WriteHeader(StatusClientClosed)
+		return
+	}
 	var he *Error
 	if !errors.As(err, &he) {
 		slog.Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)
